@@ -125,19 +125,27 @@ class EFormsUBLParser(BaseParser):
     def _extract_contracting_body(self, root, ns) -> Optional[Dict]:
         """Extract contracting body information from eForms UBL."""
         try:
-            # Find the contracting body organization
-            # eForms uses different organization roles, need to find the buyer
-            orgs = root.xpath('.//efac:Organizations/efac:Organization', namespaces=ns)
+            # Find the contracting party organization ID from the main document structure
+            contracting_party_id = self._get_text(root, './/cac:ContractingParty/cac:Party/cac:PartyIdentification/cbc:ID', ns)
 
-            contracting_body = None
-            for org in orgs:
-                # Look for the contracting authority/buyer
-                company = org.find('.//efac:Company', ns)
-                if company is not None:
-                    # Assume first organization is contracting body for now
-                    # TODO: Add logic to identify buyer vs contractor organizations
-                    contracting_body = company
-                    break
+            if not contracting_party_id:
+                # Fallback to first organization if no contracting party specified
+                orgs = root.xpath('.//efac:Organizations/efac:Organization', namespaces=ns)
+                if orgs:
+                    contracting_body = orgs[0].find('.//efac:Company', ns)
+                else:
+                    return None
+            else:
+                # Find the organization with the matching ID
+                contracting_body = None
+                orgs = root.xpath('.//efac:Organizations/efac:Organization', namespaces=ns)
+                for org in orgs:
+                    company = org.find('.//efac:Company', ns)
+                    if company is not None:
+                        org_id = self._get_text(company, './/cac:PartyIdentification/cbc:ID', ns)
+                        if org_id == contracting_party_id:
+                            contracting_body = company
+                            break
 
             if contracting_body is None:
                 return None
@@ -180,25 +188,37 @@ class EFormsUBLParser(BaseParser):
                 total_value = self._get_decimal_from_text(total_amount[0].text)
                 total_currency = total_amount[0].get('currencyID', '')
 
+            # Extract main CPV code
+            main_cpv = self._get_text(root, './/cac:ProcurementProject/cac:MainCommodityClassification/cbc:ItemClassificationCode', ns)
+
+            # Extract contract nature
+            contract_nature_code = self._get_text(root, './/cac:ProcurementProject/cbc:ProcurementTypeCode', ns)
+
+            # Extract procedure type
+            procedure_type_code = self._get_text(root, './/cac:TenderingProcess/cbc:ProcedureCode', ns)
+
+            # Extract performance NUTS code
+            nuts_code = self._get_text(root, './/cac:ProcurementProject/cac:RealizedLocation/cac:Address/cbc:CountrySubentityCode', ns)
+
             return {
                 'title': title,
                 'reference_number': ref_number,
-                'short_description': title,  # Use title as description
-                'main_cpv_code': '',  # TODO: Extract CPV if available
-                'contract_nature_code': '',
-                'contract_nature': '',
+                'short_description': title,
+                'main_cpv_code': main_cpv or '',
+                'contract_nature_code': contract_nature_code or '',
+                'contract_nature': contract_nature_code or '',
                 'total_value': total_value,
                 'total_value_currency': total_currency,
                 'estimated_value': None,
                 'estimated_value_currency': '',
-                'has_lots': False,  # TODO: Detect lot structure
+                'has_lots': False,
                 'lot_count': 1,
-                'procedure_type_code': '',
-                'procedure_type': '',
+                'procedure_type_code': procedure_type_code or '',
+                'procedure_type': procedure_type_code or '',
                 'award_criteria_code': '',
                 'award_criteria': '',
                 'is_eu_funded': False,
-                'performance_nuts_code': ''
+                'performance_nuts_code': nuts_code or ''
             }
         except Exception as e:
             logger.error(f"Error extracting contract: {e}")
@@ -261,32 +281,38 @@ class EFormsUBLParser(BaseParser):
         try:
             contractors = []
 
-            # Find contractor organizations
+            # Find winning tenderer organization IDs from tender results
+            winning_org_ids = set()
+            tenderer_parties = root.xpath('.//efac:TenderingParty', namespaces=ns)
+            for party in tenderer_parties:
+                tenderer_ids = party.xpath('.//efac:Tenderer/cbc:ID/text()', namespaces=ns)
+                winning_org_ids.update(tenderer_ids)
+
+            # Find contractor organizations by matching winning organization IDs
             orgs = root.xpath('.//efac:Organizations/efac:Organization', namespaces=ns)
 
             for org in orgs:
                 company = org.find('.//efac:Company', ns)
                 if company is not None:
-                    # TODO: Add logic to differentiate contractors from contracting bodies
-                    # For now, add all organizations except the first one (assumed to be contracting body)
-                    if len(contractors) > 0 or len(orgs) == 1:  # Skip first if multiple orgs
-                        continue
+                    org_id = self._get_text(company, './/cac:PartyIdentification/cbc:ID', ns)
 
-                    contractor = {
-                        'official_name': self._get_text(company, './/cac:PartyName/cbc:Name', ns) or '',
-                        'national_id': self._get_text(company, './/cac:PartyLegalEntity/cbc:CompanyID', ns),
-                        'address': self._get_text(company, './/cac:PostalAddress/cbc:StreetName', ns),
-                        'town': self._get_text(company, './/cac:PostalAddress/cbc:CityName', ns),
-                        'postal_code': self._get_text(company, './/cac:PostalAddress/cbc:PostalZone', ns),
-                        'country_code': self._get_text(company, './/cac:PostalAddress/cac:Country/cbc:IdentificationCode', ns),
-                        'nuts_code': '',
-                        'phone': self._get_text(company, './/cac:Contact/cbc:Telephone', ns),
-                        'email': self._get_text(company, './/cac:Contact/cbc:ElectronicMail', ns),
-                        'fax': '',
-                        'url': self._get_text(company, './/cbc:WebsiteURI', ns),
-                        'is_sme': False  # TODO: Extract SME status if available
-                    }
-                    contractors.append(contractor)
+                    # Only include organizations that are winning tenderers
+                    if org_id in winning_org_ids:
+                        contractor = {
+                            'official_name': self._get_text(company, './/cac:PartyName/cbc:Name', ns) or '',
+                            'national_id': self._get_text(company, './/cac:PartyLegalEntity/cbc:CompanyID', ns),
+                            'address': self._get_text(company, './/cac:PostalAddress/cbc:StreetName', ns),
+                            'town': self._get_text(company, './/cac:PostalAddress/cbc:CityName', ns),
+                            'postal_code': self._get_text(company, './/cac:PostalAddress/cbc:PostalZone', ns),
+                            'country_code': self._get_text(company, './/cac:PostalAddress/cac:Country/cbc:IdentificationCode', ns),
+                            'nuts_code': '',
+                            'phone': self._get_text(company, './/cac:Contact/cbc:Telephone', ns),
+                            'email': self._get_text(company, './/cac:Contact/cbc:ElectronicMail', ns),
+                            'fax': '',
+                            'url': self._get_text(company, './/cbc:WebsiteURI', ns),
+                            'is_sme': False
+                        }
+                        contractors.append(contractor)
 
             # If no contractors found, create a default one
             if not contractors:
