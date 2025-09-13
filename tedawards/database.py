@@ -196,12 +196,14 @@ class DatabaseManager:
         if data['document']['original_language']:
             languages.add(data['document']['original_language'])
 
+        # Add empty string for NULL/empty cases
+        languages.add('')
+
         for lang in languages:
-            if lang:  # Skip empty strings
-                cur.execute(
-                    "INSERT INTO languages (code, name) VALUES (%s, %s) ON CONFLICT (code) DO NOTHING",
-                    (lang, lang)  # Use code as name for now
-                )
+            cur.execute(
+                "INSERT INTO languages (code, name) VALUES (%s, %s) ON CONFLICT (code) DO NOTHING",
+                (lang, lang if lang else 'Unknown')
+            )
 
         # Countries
         countries = set()
@@ -215,12 +217,14 @@ class DatabaseManager:
                 if contractor['country_code']:
                     countries.add(contractor['country_code'])
 
+        # Add empty string for NULL/empty cases
+        countries.add('')
+
         for country in countries:
-            if country:  # Skip empty strings
-                cur.execute(
-                    "INSERT INTO countries (code, name) VALUES (%s, %s) ON CONFLICT (code) DO NOTHING",
-                    (country, country)  # Use code as name for now
-                )
+            cur.execute(
+                "INSERT INTO countries (code, name) VALUES (%s, %s) ON CONFLICT (code) DO NOTHING",
+                (country, country if country else 'Unknown')
+            )
 
         # NUTS codes
         nuts_codes = set()
@@ -234,12 +238,14 @@ class DatabaseManager:
                 if contractor['nuts_code']:
                     nuts_codes.add(contractor['nuts_code'])
 
+        # Add empty string for NULL/empty cases
+        nuts_codes.add('')
+
         for nuts in nuts_codes:
-            if nuts:  # Skip empty strings
-                cur.execute(
-                    "INSERT INTO nuts_codes (code, name, level) VALUES (%s, %s, %s) ON CONFLICT (code) DO NOTHING",
-                    (nuts, nuts, len(nuts))  # Use length as level approximation
-                )
+            cur.execute(
+                "INSERT INTO nuts_codes (code, name, level) VALUES (%s, %s, %s) ON CONFLICT (code) DO NOTHING",
+                (nuts, nuts if nuts else 'Unknown', len(nuts) if nuts else 0)
+            )
 
         # Currencies
         currencies = set()
@@ -252,24 +258,28 @@ class DatabaseManager:
             if award_data['subcontracted_value_currency']:
                 currencies.add(award_data['subcontracted_value_currency'])
 
+        # Add empty string as a valid currency for NULL/empty cases
+        currencies.add('')
+
         for currency in currencies:
-            if currency:  # Skip empty strings
-                cur.execute(
-                    "INSERT INTO currencies (code, name) VALUES (%s, %s) ON CONFLICT (code) DO NOTHING",
-                    (currency, currency)  # Use code as name for now
-                )
+            cur.execute(
+                "INSERT INTO currencies (code, name) VALUES (%s, %s) ON CONFLICT (code) DO NOTHING",
+                (currency, currency if currency else 'Unknown')
+            )
 
         # CPV codes
         cpv_codes = set()
         if data['contract']['main_cpv_code']:
             cpv_codes.add(data['contract']['main_cpv_code'])
 
+        # Add empty string for NULL/empty cases
+        cpv_codes.add('')
+
         for cpv in cpv_codes:
-            if cpv:  # Skip empty strings
-                cur.execute(
-                    "INSERT INTO cpv_codes (code, description) VALUES (%s, %s) ON CONFLICT (code) DO NOTHING",
-                    (cpv, cpv)  # Use code as description for now
-                )
+            cur.execute(
+                "INSERT INTO cpv_codes (code, description) VALUES (%s, %s) ON CONFLICT (code) DO NOTHING",
+                (cpv, cpv if cpv else 'Unknown')
+            )
 
     def _ensure_schema_exists(self):
         """Ensure database schema exists by running schema.sql if needed."""
