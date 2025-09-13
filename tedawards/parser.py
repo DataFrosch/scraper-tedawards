@@ -186,7 +186,12 @@ class TedXmlParser:
         """Parse date string to date object."""
         if not date_str:
             return None
-        try:
-            return datetime.strptime(date_str, '%Y%m%d').date()
-        except ValueError:
-            return None
+
+        # Try different date formats
+        formats = ['%Y%m%d', '%Y-%m-%d']
+        for fmt in formats:
+            try:
+                return datetime.strptime(date_str, fmt).date()
+            except ValueError:
+                continue
+        return None
