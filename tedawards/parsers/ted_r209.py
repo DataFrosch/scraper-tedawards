@@ -4,10 +4,25 @@ from typing import Dict, List, Optional
 from lxml import etree
 from datetime import datetime
 
+from .base import BaseParser
+
 logger = logging.getLogger(__name__)
 
-class TedXmlParser:
-    """Parse TED XML files and extract award notice data."""
+class TedXmlParser(BaseParser):
+    """Parse TED R2.0.9 XML files and extract award notice data."""
+
+    def can_parse(self, xml_file: Path) -> bool:
+        """Check if this is a TED R2.0.9 format file."""
+        try:
+            with open(xml_file, 'r', encoding='utf-8') as f:
+                content = f.read(1000)  # Read first 1KB
+            return 'TED_EXPORT' in content and 'ted/R2.0.9' in content
+        except Exception:
+            return False
+
+    def get_format_name(self) -> str:
+        """Return format name."""
+        return "TED R2.0.9"
 
     def parse_xml_file(self, xml_path: Path) -> Optional[Dict]:
         """Parse a single TED XML file and return structured data."""

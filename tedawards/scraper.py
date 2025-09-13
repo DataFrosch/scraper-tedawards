@@ -5,7 +5,7 @@ from pathlib import Path
 from datetime import date, timedelta
 from typing import List
 from .config import config
-from .parser import TedXmlParser
+from .parsers import ParserFactory
 from .database import DatabaseManager
 
 logger = logging.getLogger(__name__)
@@ -14,7 +14,7 @@ class TedScraper:
     """Main scraper for TED awards data."""
 
     def __init__(self):
-        self.parser = TedXmlParser()
+        self.parser_factory = ParserFactory()
         self.data_dir = config.TED_DATA_DIR
         self.data_dir.mkdir(exist_ok=True)
 
@@ -110,10 +110,19 @@ class TedScraper:
                 logger.debug(f"Skipping {xml_file.name} - already processed")
                 return False
 
-            # Parse XML
-            data = self.parser.parse_xml_file(xml_file)
-            if not data:
+            # Get appropriate parser for this XML file
+            parser = self.parser_factory.get_parser(xml_file)
+            if not parser:
+                logger.debug(f"No parser available for {xml_file.name}")
                 return False
+
+            # Parse XML
+            data = parser.parse_xml_file(xml_file)
+            if not data:
+                logger.debug(f"Failed to parse {xml_file.name} with {parser.get_format_name()}")
+                return False
+
+            logger.debug(f"Parsed {xml_file.name} using {parser.get_format_name()}")
 
             # Save to database
             db.save_award_data(data)

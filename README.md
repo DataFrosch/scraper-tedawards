@@ -6,7 +6,8 @@ A Python scraper for EU procurement contract award notices from [TED Europa](htt
 
 - Scrapes daily TED award notice archives (document type 7 only)
 - Comprehensive PostgreSQL database schema for procurement data
-- Handles 821 documents with 3,527 awards and 1,792 contractors per day
+- Processes 300-900+ award notices per day (varies by TED archive content)
+- Extracts thousands of awards and contractors from daily archives
 - Automatic schema creation and reference data management
 - Docker development environment
 
@@ -66,7 +67,8 @@ Key tables:
 
 ## Data Quality
 
--  91.6% of awards include conclusion dates
--  All key procurement data extracted accurately
--  Handles multiple date formats and edge cases
--  Zero processing errors on production data
+- ✅ 93.3% of awards include conclusion dates
+- ✅ All key procurement data extracted accurately
+- ✅ Handles multiple date formats and XML variations
+- ✅ Consistent processing across different archive dates
+- ✅ Filters TED R2.0.9 format (ignores newer eForms format)
