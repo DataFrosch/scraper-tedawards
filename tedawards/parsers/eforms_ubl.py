@@ -77,18 +77,33 @@ class EFormsUBLParser(BaseParser):
         """Extract document metadata from eForms UBL."""
         try:
             # Extract document ID from filename (more reliable than internal IDs)
-            doc_id = xml_file.stem.replace('_2024', '-2024')  # e.g., "00001765_2024" -> "001765-2024"
+            doc_id = xml_file.stem
+            # Handle both _2024 and _2025 patterns
+            if '_2024' in doc_id:
+                doc_id = doc_id.replace('_2024', '-2024')
+            elif '_2025' in doc_id:
+                doc_id = doc_id.replace('_2025', '-2025')
+            else:
+                # Generic pattern for future years
+                import re
+                doc_id = re.sub(r'_(\d{4})$', r'-\1', doc_id)
 
-            # Extract issue date from various possible locations
-            issue_date = (
+            # Extract publication date from various possible locations
+            pub_date_str = (
+                self._get_text(root, './/efac:Publication/efbc:PublicationDate', ns) or
                 self._get_text(root, './/cbc:IssueDate', ns) or
                 self._get_text(root, './/efac:SettledContract/cbc:IssueDate', ns) or
                 self._get_text(root, './/cac:ContractAwardNotice/cbc:IssueDate', ns)
             )
 
-            # If no issue date found, use current date (eForms files are recent)
+            # Parse the publication date
             from datetime import date
-            pub_date = self._parse_date(issue_date) if issue_date else date.today()
+            pub_date = self._parse_date(pub_date_str) if pub_date_str else None
+
+            # If no publication date found, this is an error - don't fallback to current date
+            if pub_date is None:
+                logger.error(f"No publication date found in eForms document {xml_file}")
+                return None
 
             # Extract language - look for most common language in the document
             language_elements = root.xpath('.//*[@languageID]', namespaces=ns)
@@ -389,13 +404,23 @@ class EFormsUBLParser(BaseParser):
         if not date_str:
             return None
 
-        # eForms uses ISO datetime format: 2023-12-28+01:00
-        formats = ['%Y-%m-%d+%H:%M', '%Y-%m-%d', '%Y%m%d']
-        for fmt in formats:
-            try:
-                # Remove timezone info for parsing
-                clean_date = date_str.split('+')[0].split('T')[0]
-                return datetime.strptime(clean_date, '%Y-%m-%d').date()
-            except ValueError:
-                continue
+        try:
+            # Clean the date string - remove timezone info and time
+            clean_date = date_str.split('+')[0].split('-')[0:3]  # Keep only YYYY-MM-DD parts
+            if len(clean_date) == 3:
+                clean_date = '-'.join(clean_date)
+            else:
+                clean_date = date_str.split('+')[0].split('T')[0].split('Z')[0]
+
+            # Try different formats
+            formats = ['%Y-%m-%d', '%Y%m%d']
+            for fmt in formats:
+                try:
+                    return datetime.strptime(clean_date, fmt).date()
+                except ValueError:
+                    continue
+
+        except Exception as e:
+            logger.debug(f"Date parsing error for '{date_str}': {e}")
+
         return None
