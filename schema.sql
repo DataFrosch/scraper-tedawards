@@ -193,7 +193,7 @@ CREATE TABLE awards (
     award_title TEXT,
 
     -- Award decision
-    conclusion_date DATE NOT NULL,
+    conclusion_date DATE,
     is_awarded BOOLEAN DEFAULT TRUE,    -- Some lots can be unsuccessful
     unsuccessful_reason TEXT,
 

@@ -53,6 +53,9 @@ class DatabaseManager:
         """Save parsed award data to database."""
         try:
             with self.conn.cursor() as cur:
+                # Insert reference data first
+                self._ensure_reference_data(cur, data)
+
                 # Save document
                 doc_data = data['document']
                 self._insert_document(cur, doc_data)
@@ -183,6 +186,90 @@ class DatabaseManager:
         ON CONFLICT (award_id, contractor_id) DO NOTHING
         """
         cur.execute(sql, (award_id, contractor_id))
+
+    def _ensure_reference_data(self, cur, data: Dict):
+        """Insert reference data found in the XML."""
+
+        # Languages
+        languages = set()
+        languages.add(data['document']['form_language'])
+        if data['document']['original_language']:
+            languages.add(data['document']['original_language'])
+
+        for lang in languages:
+            if lang:  # Skip empty strings
+                cur.execute(
+                    "INSERT INTO languages (code, name) VALUES (%s, %s) ON CONFLICT (code) DO NOTHING",
+                    (lang, lang)  # Use code as name for now
+                )
+
+        # Countries
+        countries = set()
+        if data['document']['source_country']:
+            countries.add(data['document']['source_country'])
+        if data['contracting_body']['country_code']:
+            countries.add(data['contracting_body']['country_code'])
+
+        for award_data in data['awards']:
+            for contractor in award_data['contractors']:
+                if contractor['country_code']:
+                    countries.add(contractor['country_code'])
+
+        for country in countries:
+            if country:  # Skip empty strings
+                cur.execute(
+                    "INSERT INTO countries (code, name) VALUES (%s, %s) ON CONFLICT (code) DO NOTHING",
+                    (country, country)  # Use code as name for now
+                )
+
+        # NUTS codes
+        nuts_codes = set()
+        if data['contracting_body']['nuts_code']:
+            nuts_codes.add(data['contracting_body']['nuts_code'])
+        if data['contract']['performance_nuts_code']:
+            nuts_codes.add(data['contract']['performance_nuts_code'])
+
+        for award_data in data['awards']:
+            for contractor in award_data['contractors']:
+                if contractor['nuts_code']:
+                    nuts_codes.add(contractor['nuts_code'])
+
+        for nuts in nuts_codes:
+            if nuts:  # Skip empty strings
+                cur.execute(
+                    "INSERT INTO nuts_codes (code, name, level) VALUES (%s, %s, %s) ON CONFLICT (code) DO NOTHING",
+                    (nuts, nuts, len(nuts))  # Use length as level approximation
+                )
+
+        # Currencies
+        currencies = set()
+        if data['contract']['total_value_currency']:
+            currencies.add(data['contract']['total_value_currency'])
+
+        for award_data in data['awards']:
+            if award_data['awarded_value_currency']:
+                currencies.add(award_data['awarded_value_currency'])
+            if award_data['subcontracted_value_currency']:
+                currencies.add(award_data['subcontracted_value_currency'])
+
+        for currency in currencies:
+            if currency:  # Skip empty strings
+                cur.execute(
+                    "INSERT INTO currencies (code, name) VALUES (%s, %s) ON CONFLICT (code) DO NOTHING",
+                    (currency, currency)  # Use code as name for now
+                )
+
+        # CPV codes
+        cpv_codes = set()
+        if data['contract']['main_cpv_code']:
+            cpv_codes.add(data['contract']['main_cpv_code'])
+
+        for cpv in cpv_codes:
+            if cpv:  # Skip empty strings
+                cur.execute(
+                    "INSERT INTO cpv_codes (code, description) VALUES (%s, %s) ON CONFLICT (code) DO NOTHING",
+                    (cpv, cpv)  # Use code as description for now
+                )
 
     def _ensure_schema_exists(self):
         """Ensure database schema exists by running schema.sql if needed."""
