@@ -10,3 +10,4 @@ wheels/
 .venv
 test_data
 .env
+/data

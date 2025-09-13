@@ -197,7 +197,9 @@ class DatabaseManager:
                     );
                 """)
 
-                if cur.fetchone()[0]:
+                result = cur.fetchone()
+                logger.debug(f"Schema check result: {result}")
+                if result and result['exists']:
                     logger.debug("Database schema already exists")
                     return
 

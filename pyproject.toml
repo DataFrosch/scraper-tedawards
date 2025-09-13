@@ -14,3 +14,9 @@ dependencies = [
 
 [project.scripts]
 tedawards = "tedawards.main:cli"
+
+[tool.uv]
+package = true
+
+[tool.setuptools]
+packages = ["tedawards"]

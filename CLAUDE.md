@@ -17,6 +17,7 @@ TED Awards scraper for analyzing EU procurement contract awards. Focus is **only
 
 ## Data Source Details
 - **URL Pattern**: `https://ted.europa.eu/packages/daily/{yyyynnnnn}` (e.g., 202400001)
+- **File Format**: `.tar.gz` archives
 - **XML Format**: TED R2.0.9 schema with F03_2014 form sections
 - **Rate Limits**: 3 concurrent downloads, 700 requests/min, 600 downloads per 6min/IP
 - **File Naming**: `{6-8digits}_{year}.xml` (e.g., 000001_2024.xml)

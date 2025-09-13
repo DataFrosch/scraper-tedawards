@@ -1,6 +1,6 @@
 import logging
 import requests
-import zipfile
+import tarfile
 from pathlib import Path
 from datetime import date, timedelta
 from typing import List
@@ -65,13 +65,13 @@ class TedScraper:
     def _download_and_extract(self, package_url: str, target_date: date) -> List[Path]:
         """Download and extract daily package, return list of XML files."""
         date_str = target_date.strftime('%Y-%m-%d')
-        zip_path = self.data_dir / f"{date_str}.zip"
+        archive_path = self.data_dir / f"{date_str}.tar.gz"
         extract_dir = self.data_dir / date_str
 
         # Check if already downloaded and extracted
-        if extract_dir.exists() and list(extract_dir.glob('*.xml')):
+        if extract_dir.exists() and list(extract_dir.glob('**/*.xml')):
             logger.info(f"Using existing data for {date_str}")
-            return list(extract_dir.glob('*.xml'))
+            return list(extract_dir.glob('**/*.xml'))
 
         # Download package
         logger.info(f"Downloading package from {package_url}")
@@ -83,21 +83,21 @@ class TedScraper:
             return []
 
         # Save and extract
-        zip_path.write_bytes(response.content)
+        archive_path.write_bytes(response.content)
         logger.info(f"Downloaded {len(response.content)} bytes")
 
         extract_dir.mkdir(exist_ok=True)
         try:
-            with zipfile.ZipFile(zip_path, 'r') as zip_file:
-                zip_file.extractall(extract_dir)
-        except zipfile.BadZipFile as e:
+            with tarfile.open(archive_path, 'r:gz') as tar_file:
+                tar_file.extractall(extract_dir)
+        except tarfile.TarError as e:
             logger.error(f"Failed to extract package: {e}")
             return []
 
-        # Clean up zip file
-        zip_path.unlink()
+        # Clean up archive file
+        archive_path.unlink()
 
-        xml_files = list(extract_dir.glob('*.xml'))
+        xml_files = list(extract_dir.glob('**/*.xml'))
         logger.info(f"Extracted {len(xml_files)} XML files")
         return xml_files
 
