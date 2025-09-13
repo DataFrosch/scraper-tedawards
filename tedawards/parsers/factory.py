@@ -3,7 +3,7 @@ from typing import List, Optional
 from .base import BaseParser
 from .ted_r209 import TedXmlParser
 from .eforms_ubl import EFormsUBLParser
-from .ted_legacy import TedLegacyParser
+from .ted_r207 import TedR207Parser
 
 class ParserFactory:
     """Factory for creating appropriate parsers for different XML formats."""
@@ -12,7 +12,7 @@ class ParserFactory:
         self.parsers: List[BaseParser] = [
             TedXmlParser(),
             EFormsUBLParser(),
-            TedLegacyParser(),
+            TedR207Parser(),
         ]
 
     def get_parser(self, xml_file: Path) -> Optional[BaseParser]:

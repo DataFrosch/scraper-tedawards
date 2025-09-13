@@ -1,5 +1,5 @@
 """
-TED Legacy parser for pre-2014 formats (R2.0.7 and earlier).
+TED R2.0.7 parser for pre-2014 formats.
 Handles CONTRACT_AWARD forms instead of F03_2014.
 """
 
@@ -14,11 +14,11 @@ from .base import BaseParser
 logger = logging.getLogger(__name__)
 
 
-class TedLegacyParser(BaseParser):
-    """Parser for legacy TED formats (R2.0.7 and earlier) used before 2014."""
+class TedR207Parser(BaseParser):
+    """Parser for TED R2.0.7 format used before 2014."""
 
     def can_parse(self, xml_file: Path) -> bool:
-        """Check if this file uses legacy TED format."""
+        """Check if this file uses TED R2.0.7 format."""
         try:
             tree = etree.parse(xml_file)
             root = tree.getroot()
@@ -37,15 +37,15 @@ class TedLegacyParser(BaseParser):
             return False
 
         except Exception as e:
-            logger.debug(f"Error checking if {xml_file.name} is legacy TED format: {e}")
+            logger.debug(f"Error checking if {xml_file.name} is TED R2.0.7 format: {e}")
             return False
 
     def get_format_name(self) -> str:
         """Return the format name for this parser."""
-        return "TED Legacy R2.0.7"
+        return "TED R2.0.7"
 
     def parse_xml_file(self, xml_file: Path) -> Optional[Dict]:
-        """Parse a legacy TED XML file and extract award data."""
+        """Parse a TED R2.0.7 XML file and extract award data."""
         try:
             tree = etree.parse(xml_file)
             root = tree.getroot()
@@ -79,7 +79,7 @@ class TedLegacyParser(BaseParser):
             }
 
         except Exception as e:
-            logger.error(f"Error parsing legacy TED file {xml_file}: {e}")
+            logger.error(f"Error parsing TED R2.0.7 file {xml_file}: {e}")
             return None
 
     def _extract_document_info(self, root, xml_file: Path) -> Optional[Dict]:
@@ -309,15 +309,21 @@ class TedLegacyParser(BaseParser):
                     country_elem = contractor_elem.find('.//{http://publications.europa.eu/TED_schema/Export}COUNTRY')
 
                     contractor = {
-                        'name': org_elem.text if org_elem is not None else None,
+                        'official_name': org_elem.text if org_elem is not None else None,
+                        'national_id': None,  # Not available in legacy format
                         'address': addr_elem.text if addr_elem is not None else None,
                         'town': town_elem.text if town_elem is not None else None,
                         'postal_code': postal_elem.text if postal_elem is not None else None,
                         'country_code': country_elem.get('VALUE') if country_elem is not None else None,
-                        'nuts_code': None  # Legacy format typically doesn't have NUTS for contractors
+                        'nuts_code': None,  # Legacy format typically doesn't have NUTS for contractors
+                        'phone': None,  # Not available in legacy format
+                        'email': None,  # Not available in legacy format
+                        'fax': None,  # Not available in legacy format
+                        'url': None,  # Not available in legacy format
+                        'is_sme': False  # Not available in legacy format
                     }
 
-                    if contractor['name']:  # Only add if we have a name
+                    if contractor['official_name']:  # Only add if we have a name
                         contractors.append(contractor)
 
                 # Build award data in expected format
