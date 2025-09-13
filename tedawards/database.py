@@ -1,0 +1,183 @@
+import logging
+import psycopg2
+from psycopg2.extras import RealDictCursor, execute_values
+from typing import Dict, List
+from .config import config
+
+logger = logging.getLogger(__name__)
+
+class DatabaseManager:
+    """Handle database operations for TED awards data."""
+
+    def __init__(self):
+        self.conn = None
+
+    def connect(self):
+        """Connect to PostgreSQL database."""
+        try:
+            self.conn = psycopg2.connect(
+                host=config.DB_HOST,
+                port=config.DB_PORT,
+                database=config.DB_NAME,
+                user=config.DB_USER,
+                password=config.DB_PASSWORD,
+                cursor_factory=RealDictCursor
+            )
+            logger.info("Connected to database")
+        except Exception as e:
+            logger.error(f"Database connection failed: {e}")
+            raise
+
+    def close(self):
+        """Close database connection."""
+        if self.conn:
+            self.conn.close()
+            logger.info("Database connection closed")
+
+    def __enter__(self):
+        self.connect()
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        self.close()
+
+    def document_exists(self, doc_id: str) -> bool:
+        """Check if document already exists in database."""
+        with self.conn.cursor() as cur:
+            cur.execute("SELECT 1 FROM ted_documents WHERE doc_id = %s", (doc_id,))
+            return cur.fetchone() is not None
+
+    def save_award_data(self, data: Dict):
+        """Save parsed award data to database."""
+        try:
+            with self.conn.cursor() as cur:
+                # Save document
+                doc_data = data['document']
+                self._insert_document(cur, doc_data)
+
+                # Save contracting body
+                cb_data = data['contracting_body']
+                cb_id = self._insert_contracting_body(cur, doc_data['doc_id'], cb_data)
+
+                # Save contract
+                contract_data = data['contract']
+                contract_id = self._insert_contract(cur, doc_data['doc_id'], cb_id, contract_data)
+
+                # Save awards
+                for award_data in data['awards']:
+                    award_id = self._insert_award(cur, contract_id, award_data)
+
+                    # Save contractors
+                    for contractor_data in award_data['contractors']:
+                        contractor_id = self._insert_contractor(cur, contractor_data)
+                        self._link_award_contractor(cur, award_id, contractor_id)
+
+            self.conn.commit()
+            logger.info(f"Saved award data for document {doc_data['doc_id']}")
+
+        except Exception as e:
+            self.conn.rollback()
+            logger.error(f"Error saving award data: {e}")
+            raise
+
+    def _insert_document(self, cur, data):
+        """Insert document record."""
+        sql = """
+        INSERT INTO ted_documents (
+            doc_id, edition, version, reception_id, deletion_date, form_language,
+            official_journal_ref, publication_date, dispatch_date, original_language, source_country
+        ) VALUES (%(doc_id)s, %(edition)s, %(version)s, %(reception_id)s, %(deletion_date)s,
+                  %(form_language)s, %(official_journal_ref)s, %(publication_date)s,
+                  %(dispatch_date)s, %(original_language)s, %(source_country)s)
+        ON CONFLICT (doc_id) DO NOTHING
+        """
+        cur.execute(sql, data)
+
+    def _insert_contracting_body(self, cur, doc_id, data):
+        """Insert contracting body and return ID."""
+        data['ted_doc_id'] = doc_id
+        sql = """
+        INSERT INTO contracting_bodies (
+            ted_doc_id, official_name, address, town, postal_code, country_code,
+            nuts_code, contact_point, phone, email, fax, url_general, url_buyer,
+            authority_type_code, main_activity_code
+        ) VALUES (%(ted_doc_id)s, %(official_name)s, %(address)s, %(town)s, %(postal_code)s,
+                  %(country_code)s, %(nuts_code)s, %(contact_point)s, %(phone)s,
+                  %(email)s, %(fax)s, %(url_general)s, %(url_buyer)s,
+                  %(authority_type_code)s, %(main_activity_code)s)
+        RETURNING id
+        """
+        cur.execute(sql, data)
+        return cur.fetchone()['id']
+
+    def _insert_contract(self, cur, doc_id, cb_id, data):
+        """Insert contract and return ID."""
+        data.update({'ted_doc_id': doc_id, 'contracting_body_id': cb_id})
+        sql = """
+        INSERT INTO contracts (
+            ted_doc_id, contracting_body_id, title, reference_number, short_description,
+            main_cpv_code, contract_nature_code, total_value, total_value_currency,
+            procedure_type_code, award_criteria_code
+        ) VALUES (%(ted_doc_id)s, %(contracting_body_id)s, %(title)s, %(reference_number)s,
+                  %(short_description)s, %(main_cpv_code)s, %(contract_nature_code)s,
+                  %(total_value)s, %(total_value_currency)s, %(procedure_type_code)s,
+                  %(award_criteria_code)s)
+        RETURNING id
+        """
+        cur.execute(sql, data)
+        return cur.fetchone()['id']
+
+    def _insert_award(self, cur, contract_id, data):
+        """Insert award and return ID."""
+        data['contract_id'] = contract_id
+        sql = """
+        INSERT INTO awards (
+            contract_id, award_title, conclusion_date, contract_number,
+            tenders_received, tenders_received_sme, tenders_received_other_eu,
+            tenders_received_non_eu, tenders_received_electronic,
+            awarded_value, awarded_value_currency,
+            subcontracted_value, subcontracted_value_currency, subcontracting_description
+        ) VALUES (%(contract_id)s, %(award_title)s, %(conclusion_date)s, %(contract_number)s,
+                  %(tenders_received)s, %(tenders_received_sme)s, %(tenders_received_other_eu)s,
+                  %(tenders_received_non_eu)s, %(tenders_received_electronic)s,
+                  %(awarded_value)s, %(awarded_value_currency)s,
+                  %(subcontracted_value)s, %(subcontracted_value_currency)s,
+                  %(subcontracting_description)s)
+        RETURNING id
+        """
+        cur.execute(sql, data)
+        return cur.fetchone()['id']
+
+    def _insert_contractor(self, cur, data):
+        """Insert contractor and return ID, or return existing ID."""
+        # First try to find existing contractor by name and country
+        cur.execute("""
+            SELECT id FROM contractors
+            WHERE official_name = %(official_name)s AND country_code = %(country_code)s
+        """, data)
+
+        existing = cur.fetchone()
+        if existing:
+            return existing['id']
+
+        # Insert new contractor
+        sql = """
+        INSERT INTO contractors (
+            official_name, address, town, postal_code, country_code, nuts_code,
+            phone, email, fax, url, is_sme
+        ) VALUES (%(official_name)s, %(address)s, %(town)s, %(postal_code)s,
+                  %(country_code)s, %(nuts_code)s, %(phone)s, %(email)s,
+                  %(fax)s, %(url)s, %(is_sme)s)
+        RETURNING id
+        """
+        cur.execute(sql, data)
+        return cur.fetchone()['id']
+
+    def _link_award_contractor(self, cur, award_id, contractor_id):
+        """Link award to contractor."""
+        sql = """
+        INSERT INTO award_contractors (award_id, contractor_id)
+        VALUES (%s, %s)
+        ON CONFLICT (award_id, contractor_id) DO NOTHING
+        """
+        cur.execute(sql, (award_id, contractor_id))
