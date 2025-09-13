@@ -26,16 +26,16 @@ class TedScraper:
         logger.info(f"Scraping TED awards for {target_date} (day {day_number:09d})")
 
         # Download and extract daily package
-        xml_files = self._download_and_extract(package_url, target_date)
-        if not xml_files:
-            logger.warning(f"No XML files found for {target_date}")
+        files = self._download_and_extract(package_url, target_date)
+        if not files:
+            logger.warning(f"No files found for {target_date}")
             return
 
-        # Process XML files
+        # Process files (XML or ZIP)
         processed = 0
         with DatabaseManager() as db:
-            for xml_file in xml_files:
-                if self._process_xml_file(xml_file, db):
+            for file_path in files:
+                if self._process_file(file_path, db):
                     processed += 1
 
         logger.info(f"Processed {processed} award notices for {target_date}")
@@ -69,9 +69,12 @@ class TedScraper:
         extract_dir = self.data_dir / date_str
 
         # Check if already downloaded and extracted
-        if extract_dir.exists() and list(extract_dir.glob('**/*.xml')):
+        existing_xml = list(extract_dir.glob('**/*.xml')) if extract_dir.exists() else []
+        existing_zip = list(extract_dir.glob('**/*.ZIP')) if extract_dir.exists() else []
+
+        if existing_xml or existing_zip:
             logger.info(f"Using existing data for {date_str}")
-            return list(extract_dir.glob('**/*.xml'))
+            return existing_xml + existing_zip
 
         # Download package
         logger.info(f"Downloading package from {package_url}")
@@ -97,38 +100,67 @@ class TedScraper:
         # Clean up archive file
         archive_path.unlink()
 
+        # Look for both XML files (newer format) and ZIP files (2007 text format)
         xml_files = list(extract_dir.glob('**/*.xml'))
-        logger.info(f"Extracted {len(xml_files)} XML files")
-        return xml_files
+        zip_files = list(extract_dir.glob('**/*.ZIP'))
 
-    def _process_xml_file(self, xml_file: Path, db: DatabaseManager) -> bool:
-        """Process a single XML file and save to database."""
+        all_files = xml_files + zip_files
+        logger.info(f"Extracted {len(xml_files)} XML files and {len(zip_files)} ZIP files")
+        return all_files
+
+    def _process_file(self, file_path: Path, db: DatabaseManager) -> bool:
+        """Process a single file (XML or ZIP) and save to database."""
         try:
-            # Check if already processed
-            doc_id = xml_file.stem.replace('_', '-')
+            # For ZIP files, use a different document ID extraction logic
+            if file_path.suffix == '.ZIP':
+                # Extract date from ZIP filename (e.g., EN_20070103_001_UTF8_ORG.ZIP)
+                import re
+                match = re.search(r'(\d{8})', file_path.name)
+                if match:
+                    date_str = match.group(1)
+                    doc_id = f"text-{date_str}-{file_path.name[:2]}"  # e.g., text-20070103-EN
+                else:
+                    doc_id = file_path.stem
+            else:
+                doc_id = file_path.stem.replace('_', '-')
+
             if db.document_exists(doc_id):
-                logger.debug(f"Skipping {xml_file.name} - already processed")
+                logger.debug(f"Skipping {file_path.name} - already processed")
                 return False
 
-            # Get appropriate parser for this XML file
-            parser = self.parser_factory.get_parser(xml_file)
+            # Get appropriate parser for this file
+            parser = self.parser_factory.get_parser(file_path)
             if not parser:
-                logger.debug(f"No parser available for {xml_file.name}")
+                logger.debug(f"No parser available for {file_path.name}")
                 return False
 
-            # Parse XML
-            data = parser.parse_xml_file(xml_file)
+            # Parse file
+            data = parser.parse_xml_file(file_path)  # Method name is misleading but kept for compatibility
             if not data:
-                logger.debug(f"Failed to parse {xml_file.name} with {parser.get_format_name()}")
+                logger.debug(f"Failed to parse {file_path.name} with {parser.get_format_name()}")
                 return False
 
-            logger.debug(f"Parsed {xml_file.name} using {parser.get_format_name()}")
+            logger.debug(f"Parsed {file_path.name} using {parser.get_format_name()}")
 
-            # Save to database
-            db.save_award_data(data)
-            logger.debug(f"Processed {xml_file.name}")
-            return True
+            # For text format, data might contain multiple awards
+            if isinstance(data, dict) and 'awards' in data:
+                saved_count = 0
+                for award_data in data['awards']:
+                    try:
+                        db.save_award_data(award_data)
+                        saved_count += 1
+                        logger.info(f"Saved award data for document {award_data.get('document_id', 'unknown')}")
+                    except Exception as e:
+                        logger.error(f"Error saving award data: {e}")
+
+                logger.debug(f"Processed {file_path.name} - saved {saved_count} awards")
+                return saved_count > 0
+            else:
+                # Single award format
+                db.save_award_data(data)
+                logger.debug(f"Processed {file_path.name}")
+                return True
 
         except Exception as e:
-            logger.error(f"Error processing {xml_file}: {e}")
+            logger.error(f"Error processing {file_path}: {e}")
             return False
