@@ -1,6 +1,7 @@
 import logging
 import psycopg2
 from psycopg2.extras import RealDictCursor, execute_values
+from pathlib import Path
 from typing import Dict, List
 from .config import config
 
@@ -24,6 +25,7 @@ class DatabaseManager:
                 cursor_factory=RealDictCursor
             )
             logger.info("Connected to database")
+            self._ensure_schema_exists()
         except Exception as e:
             logger.error(f"Database connection failed: {e}")
             raise
@@ -181,3 +183,41 @@ class DatabaseManager:
         ON CONFLICT (award_id, contractor_id) DO NOTHING
         """
         cur.execute(sql, (award_id, contractor_id))
+
+    def _ensure_schema_exists(self):
+        """Ensure database schema exists by running schema.sql if needed."""
+        try:
+            # Check if main table exists
+            with self.conn.cursor() as cur:
+                cur.execute("""
+                    SELECT EXISTS (
+                        SELECT FROM information_schema.tables
+                        WHERE table_schema = 'public'
+                        AND table_name = 'ted_documents'
+                    );
+                """)
+
+                if cur.fetchone()[0]:
+                    logger.debug("Database schema already exists")
+                    return
+
+            # Schema doesn't exist, create it
+            logger.info("Creating database schema")
+            schema_path = Path(__file__).parent.parent / 'schema.sql'
+
+            if not schema_path.exists():
+                raise FileNotFoundError(f"Schema file not found: {schema_path}")
+
+            with open(schema_path, 'r') as f:
+                schema_sql = f.read()
+
+            with self.conn.cursor() as cur:
+                cur.execute(schema_sql)
+
+            self.conn.commit()
+            logger.info("Database schema created successfully")
+
+        except Exception as e:
+            self.conn.rollback()
+            logger.error(f"Error creating database schema: {e}")
+            raise

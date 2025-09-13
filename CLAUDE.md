@@ -43,6 +43,10 @@ Comprehensive schema in `schema.sql` with tables:
 - `uv run tedawards backfill --start-date 2024-01-01 --end-date 2024-01-31`
 - `docker-compose up -d` (database)
 
+## Schema Management
+- Scraper automatically creates schema on first run if database is empty
+- No need for manual schema setup - just point at any PostgreSQL database
+
 ## Environment Variables
 - `DATABASE_URL` or individual `DB_HOST`, `DB_PORT`, `DB_NAME`, `DB_USER`, `DB_PASSWORD`
 - `TED_DATA_DIR` - Local storage for downloaded archives
