@@ -15,7 +15,10 @@ TED Awards scraper for analyzing EU procurement contract awards. Focus is **only
 3. **Daily incremental**: Fetch daily archives we don't have yet
 4. **Modular design**: Archive downloader, XML parser, DB handler, scheduler
 5. **No fallbacks or defaults**: Only extract data directly from XML files - no defaults, no fallbacks, no default records. Missing data should be None in Python and NULL in database. If we cannot extract required data, skip the record entirely rather than creating defaults
-6. **Fail-loud error handling**: Errors should always bubble up and cause loud failures. Never silently ignore errors or continue processing with partial data. Use proper exception handling but let errors propagate to calling code for proper error reporting and debugging
+6. **Fail-loud error handling**: Errors should always bubble up and cause loud failures. Never silently ignore errors or continue processing with partial data. Use proper exception handling but let errors propagate to calling code for proper error reporting and debugging. This includes:
+   - **Never assume defaults**: If required data is missing (like original language for deduplication), raise an exception rather than assuming a default value
+   - **Never gracefully degrade**: If data integrity cannot be guaranteed, fail immediately rather than producing potentially incorrect results
+   - **Always validate critical assumptions**: If business logic depends on certain data being present, validate it exists and fail if it doesn't
 
 ## Data Source Details
 - **URL Pattern**: `https://ted.europa.eu/packages/daily/{yyyynnnnn}` (e.g., 202400001)

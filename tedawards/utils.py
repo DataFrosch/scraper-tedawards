@@ -86,12 +86,12 @@ class FileDetector:
     def is_ted_r209(file_path: Path) -> bool:
         """Check if this is a TED R2.0.9 format file."""
         try:
-            with open(file_path, 'r', encoding='utf-8') as f:
+            with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
                 content = f.read(1000)  # Read first 1KB
             return 'TED_EXPORT' in content and 'ted/R2.0.9' in content
         except Exception as e:
-            logger.error(f"Error reading file {file_path.name} for R2.0.9 detection: {e}")
-            raise
+            logger.debug(f"Error reading file {file_path.name} for R2.0.9 detection: {e}")
+            return False
 
     @staticmethod
     def is_ted_r207(file_path: Path) -> bool:
@@ -120,13 +120,13 @@ class FileDetector:
     def is_eforms_ubl(file_path: Path) -> bool:
         """Check if this is an eForms UBL ContractAwardNotice format file."""
         try:
-            with open(file_path, 'r', encoding='utf-8') as f:
+            with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
                 content = f.read(1000)  # Read first 1KB
             return ('ContractAwardNotice' in content and
                     'urn:oasis:names:specification:ubl:schema:xsd:ContractAwardNotice-2' in content)
         except Exception as e:
-            logger.error(f"Error reading file {file_path.name} for eForms UBL detection: {e}")
-            raise
+            logger.debug(f"Error reading file {file_path.name} for eForms UBL detection: {e}")
+            return False
 
     @staticmethod
     def is_ted_text_format(file_path: Path) -> bool:
@@ -140,7 +140,7 @@ class FileDetector:
             # Format patterns:
             # - XX_YYYYMMDD_NNN_UTF8_ORG.ZIP (e.g., EN_20070103_001_UTF8_ORG.ZIP)
             # - xx_yyyymmdd_nnn_utf8_org.zip (e.g., en_20080103_001_utf8_org.zip)
-            # - xx_yyyymmdd_nnn_meta_org.zip (e.g., en_20080103_001_meta_org.zip)
+            # - xx_yyyymmdd_nnn_meta_org.zip (e.g., en_20080103_001_meta_org.zip) - PREFERRED
             pattern = r'^[a-zA-Z]{2}_\d{8}_\d{3}_(utf8|meta|iso)_org\.(zip|ZIP)$'
             return bool(re.match(pattern, file_path.name, re.IGNORECASE))
         except Exception as e:

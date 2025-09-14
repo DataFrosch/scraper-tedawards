@@ -40,6 +40,11 @@ class EFormsUBLParser(BaseParser):
                 'ext': 'urn:oasis:names:specification:ubl:schema:xsd:CommonExtensionComponents-2'
             }
 
+            # Check if this is the original language version to avoid processing translations
+            if not self._is_original_language_version(root, namespaces):
+                logger.debug(f"Skipping {xml_path.name} - not original language version")
+                return None
+
             # Extract basic document information
             doc_data = self._extract_document_data(root, namespaces, xml_path)
             if not doc_data:
@@ -328,5 +333,54 @@ class EFormsUBLParser(BaseParser):
             logger.error(f"Error extracting contractors: {e}")
             return []
 
+    def _is_original_language_version(self, root, ns) -> bool:
+        """
+        Check if this eForms UBL document is in its original language.
 
+        eForms documents can have translations, so we need to filter to only process
+        the original language version to avoid duplicates.
 
+        For eForms UBL, the original language is typically indicated by:
+        1. The document's primary language matching the original language of the notice
+        2. Looking for explicit language markers in the metadata
+        """
+        try:
+            # Extract the most common language used in the document
+            language_elements = root.xpath('.//*[@languageID]', namespaces=ns)
+            languages = [elem.get('languageID') for elem in language_elements if elem.get('languageID')]
+
+            if not languages:
+                # Fail loud - language information is required for deduplication
+                raise ValueError("No language markers (languageID attributes) found in eForms document - cannot determine original language version")
+
+            # Get the most frequent language
+            primary_lang = max(set(languages), key=languages.count)
+
+            # For eForms, check if there's an explicit original language marker
+            # Look for language declarations or original language indicators
+            orig_lang_elements = root.xpath('.//efbc:OriginalLanguage/text()', namespaces=ns)
+            if orig_lang_elements:
+                original_language = orig_lang_elements[0].upper()
+                return primary_lang.upper() == original_language.upper()
+
+            # Fallback: Check publication metadata for language indicators
+            # In eForms, if this document is published in multiple languages,
+            # the original usually has specific markers
+            publication_elements = root.xpath('.//efac:Publication', namespaces=ns)
+            for pub in publication_elements:
+                lang_attr = pub.get('languageID', '').upper()
+                if lang_attr and lang_attr == primary_lang.upper():
+                    # Check if this publication is marked as original
+                    pub_type = XmlUtils.get_text_with_namespace(pub, './/efbc:PublicationType', ns)
+                    if pub_type and 'original' in pub_type.lower():
+                        return True
+
+            # If no explicit indicators found, assume this is the original
+            # (better to process potentially duplicate than miss original)
+            logger.debug(f"No explicit original language markers found in eForms document, processing as original (primary language: {primary_lang})")
+            return True
+
+        except Exception as e:
+            logger.error(f"Error checking original language version: {e}")
+            # In case of error, process the document (fail-open approach)
+            return True

@@ -35,6 +35,12 @@ class TedXmlParser(BaseParser):
                 logger.debug(f"Skipping {xml_path.name} - not an award notice")
                 return None
 
+            # Check if this document is in its original language to avoid duplicates
+            original_lang = XmlUtils.get_text(root, '//*[local-name()="LG_ORIG"]')
+            if not self._is_original_language_version(root, original_lang):
+                logger.debug(f"Skipping {xml_path.name} - translation (original language: {original_lang})")
+                return None
+
             award_data = self._extract_award_data(root)
             if award_data:
                 return TedParserResultModel(awards=[award_data])
@@ -184,5 +190,39 @@ class TedXmlParser(BaseParser):
         # If no contractors found, return empty list
 
         return contractors
+
+    def _is_original_language_version(self, root, original_lang: str) -> bool:
+        """
+        Check if this XML document represents the original language version.
+
+        In TED XML format, each document contains all languages but we only want to process
+        the document once in its original language to avoid duplicates.
+
+        The original language version is identified by:
+        1. Having an OTH_NOT element with CATEGORY="ORIGINAL"
+        2. The LG attribute of that element should match the LG_ORIG value
+        """
+        if not original_lang:
+            # Fail loud - original language is required for deduplication
+            raise ValueError(f"No original language (LG_ORIG) found in document - cannot determine if this is original or translation")
+
+        original_lang = original_lang.strip().upper()
+
+        # Look for elements marked as CATEGORY="ORIGINAL" (can be OTH_NOT, CONTRACT_AWARD, or other elements)
+        original_elements = root.xpath('//*[@CATEGORY="ORIGINAL"]')
+
+        if not original_elements:
+            # Fail loud - we must be able to identify the original language section
+            raise ValueError(f"No element with CATEGORY='ORIGINAL' found - cannot determine original language version")
+
+        # Check if any ORIGINAL element's language matches the document's original language
+        for elem in original_elements:
+            elem_lang = elem.get('LG', '').strip().upper()
+            if elem_lang == original_lang:
+                logger.debug(f"Processing document in original language: {original_lang}")
+                return True
+
+        logger.debug(f"Skipping translation - original language is {original_lang}, but no ORIGINAL section found for this language")
+        return False
 
 
