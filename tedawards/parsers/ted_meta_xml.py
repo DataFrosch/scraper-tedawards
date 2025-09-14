@@ -55,17 +55,19 @@ class TedMetaXmlParser(BaseParser):
                 # Find all award documents
                 award_records = []
 
-                # Process CONTRACT_AWARD elements (original language only)
+                # Process CONTRACT_AWARD elements (original language files only: lg == lgorig)
                 for doc in root.xpath('.//CONTRACT_AWARD[@category="orig"]'):
-                    award_data = self._convert_meta_xml_to_standard_format(doc)
-                    if award_data:
-                        award_records.append(award_data)
+                    # Only process if document language matches original language
+                    if doc.get('lg') == doc.get('lgorig'):
+                        award_data = self._convert_meta_xml_to_standard_format(doc)
+                        if award_data:
+                            award_records.append(award_data)
 
-                # Process OTH_NOT elements with award notices (original language only)
+                # Process OTH_NOT elements with award notices (original language files only: lg == lgorig)
                 for doc in root.xpath('.//OTH_NOT[@category="orig"]'):
-                    # Check if this is an award notice (natnotice code="7")
+                    # Check if this is an award notice (natnotice code="7") AND original language matches current
                     natnotice = doc.xpath('.//natnotice[@code="7"]')
-                    if natnotice:
+                    if natnotice and doc.get('lg') == doc.get('lgorig'):
                         award_data = self._convert_meta_xml_to_standard_format(doc)
                         if award_data:
                             award_records.append(award_data)
