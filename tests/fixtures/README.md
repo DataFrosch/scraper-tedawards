@@ -9,9 +9,13 @@ These are ZIP archives containing structured field-based text data in original T
 
 - **`ted_iso_legacy_1999_en.zip`** - English ISO format from 1999-01-02
 - **`ted_iso_legacy_2003_en.zip`** - English ISO format from 2003-01-02
+- **`ted_iso_legacy_2006_utf8_lt.zip`** - Lithuanian UTF8 format from 2006-01-04 (same structure as ISO)
 
 **Parser**: ❌ **MISSING** - `TedIsoLegacyParser` needed
-**File Pattern**: `*_ISO_ORG.zip` or `*_ISO_ORG.ZIP`
+**File Patterns**:
+- `*_ISO_ORG.zip` or `*_ISO_ORG.ZIP` (1995-2007)
+- `*_UTF8_ORG.zip` or `*_UTF8_ORG.ZIP` (2006-2007) - **Same format, different encoding**
+
 **Contains**: Structured field-based text data with codes like `TD:`, `ND:`, `AU:`, `TX:`
 **Format Example**:
 ```
@@ -73,16 +77,14 @@ Based on the analysis of downloaded data from 1994-2025, the following formats w
 
 ### 1. TED ISO Legacy Format (1995-2007)
 - **Years**: 1995-2007
-- **File Pattern**: `*_ISO_ORG.zip` or `*_ISO_ORG.ZIP`
+- **File Patterns**:
+  - `*_ISO_ORG.zip` or `*_ISO_ORG.ZIP` (1995-2007)
+  - `*_UTF8_ORG.zip` or `*_UTF8_ORG.ZIP` (2006-2007) - **Same format**
 - **Status**: ❌ **MISSING PARSER** - Contains valuable contract award data
 - **Format**: Structured field-based text with codes like `TD:`, `ND:`, `AU:`, `TX:`
 - **Value**: Contains 12+ years of contract awards not accessible by current parsers
 - **Priority**: **HIGH** - Large data gap covering early EU procurement
-
-### 2. TED Text Format UTF-8 Variants
-- **File Pattern**: `*_utf8_org.zip`
-- **Status**: ❌ **SKIPPED** - Incomplete data (missing fields compared to META format)
-- **Recommendation**: Skip in favor of META format which has complete data
+- **Note**: UTF8 and ISO variants are identical structure, just different languages/encoding
 
 ### 2. eForms UBL Coverage Note
 - **Status**: ✅ **Found in 2025 data** - eForms transition occurred in 2025
@@ -95,7 +97,6 @@ Based on the analysis of downloaded data from 1994-2025, the following formats w
 |--------|-------|------------------|---------|----------|
 | TED ISO Legacy | 1995-2007 | ❌ **MISSING** | Downloaded, not parsed | **HIGH** |
 | TED Text (META) | 2008-2013 | ✅ Yes | `TedMetaXmlParser` | Complete |
-| TED Text (UTF8) | 2008-2013 | ❌ Skip | Incomplete data | Low |
 | TED 2.0 R2.0.7 | 2008-2010 | ✅ Yes | `TedV2Parser` | Complete |
 | TED 2.0 R2.0.8 | 2011-2013 | ✅ Yes | `TedV2Parser` | Complete |
 | TED 2.0 R2.0.9 | 2014-2024 | ✅ Yes | `TedV2Parser` | Complete |
