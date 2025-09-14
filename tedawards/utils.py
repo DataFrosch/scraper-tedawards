@@ -54,8 +54,9 @@ class XmlUtils:
         try:
             result = elem.xpath(xpath, namespaces=ns)
             return result[0].text if result and result[0].text else default
-        except Exception:
-            return default
+        except Exception as e:
+            logger.error(f"Error extracting text with namespace for xpath '{xpath}': {e}")
+            raise
 
     @staticmethod
     def get_attr_with_namespace(elem, xpath: str, attr: str, ns: Dict[str, str], default: Optional[str] = None) -> Optional[str]:
@@ -63,8 +64,9 @@ class XmlUtils:
         try:
             result = elem.xpath(xpath, namespaces=ns)
             return result[0].get(attr, default) if result else default
-        except Exception:
-            return default
+        except Exception as e:
+            logger.error(f"Error extracting attribute '{attr}' with namespace for xpath '{xpath}': {e}")
+            raise
 
     @staticmethod
     def get_decimal_from_text(text: str, default: Optional[float] = None) -> Optional[float]:
@@ -87,8 +89,9 @@ class FileDetector:
             with open(file_path, 'r', encoding='utf-8') as f:
                 content = f.read(1000)  # Read first 1KB
             return 'TED_EXPORT' in content and 'ted/R2.0.9' in content
-        except Exception:
-            return False
+        except Exception as e:
+            logger.error(f"Error reading file {file_path.name} for R2.0.9 detection: {e}")
+            raise
 
     @staticmethod
     def is_ted_r207(file_path: Path) -> bool:
@@ -121,20 +124,25 @@ class FileDetector:
                 content = f.read(1000)  # Read first 1KB
             return ('ContractAwardNotice' in content and
                     'urn:oasis:names:specification:ubl:schema:xsd:ContractAwardNotice-2' in content)
-        except Exception:
-            return False
+        except Exception as e:
+            logger.error(f"Error reading file {file_path.name} for eForms UBL detection: {e}")
+            raise
 
     @staticmethod
     def is_ted_text_format(file_path: Path) -> bool:
         """Check if this file uses TED text format (ZIP containing text files)."""
         try:
-            if not file_path.name.endswith('.ZIP'):
+            # Check for both uppercase and lowercase zip extensions
+            if not (file_path.name.upper().endswith('.ZIP')):
                 return False
 
-            # Check if it's a language-specific ZIP file pattern
-            # Format: XX_YYYYMMDD_NNN_UTF8_ORG.ZIP (e.g., EN_20070103_001_UTF8_ORG.ZIP)
-            pattern = r'^[A-Z]{2}_\d{8}_\d{3}_(UTF8|ISO)_ORG\.ZIP$'
-            return bool(re.match(pattern, file_path.name))
+            # Check if it's a language-specific ZIP file pattern - case insensitive
+            # Format patterns:
+            # - XX_YYYYMMDD_NNN_UTF8_ORG.ZIP (e.g., EN_20070103_001_UTF8_ORG.ZIP)
+            # - xx_yyyymmdd_nnn_utf8_org.zip (e.g., en_20080103_001_utf8_org.zip)
+            # - xx_yyyymmdd_nnn_meta_org.zip (e.g., en_20080103_001_meta_org.zip)
+            pattern = r'^[a-zA-Z]{2}_\d{8}_\d{3}_(utf8|meta|iso)_org\.(zip|ZIP)$'
+            return bool(re.match(pattern, file_path.name, re.IGNORECASE))
         except Exception as e:
             logger.debug(f"Error checking if {file_path.name} is TED text format: {e}")
             return False
@@ -152,8 +160,9 @@ class FileDetector:
             # Check for document type 7 in various formats
             doc_type = root.xpath('//*[local-name()="TD_DOCUMENT_TYPE"]/@CODE')
             return doc_type and doc_type[0] == '7'
-        except Exception:
-            return False
+        except Exception as e:
+            logger.error(f"Error parsing file {file_path.name} for award notice detection: {e}")
+            raise
 
 
 class DateParsingUtils:

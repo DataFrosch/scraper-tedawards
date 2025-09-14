@@ -44,7 +44,8 @@ class TedTextParser(BaseParser):
         """Parse ZIP file, but only return records where current file language matches original language."""
         try:
             # Extract current file's language from filename (e.g., EN_20070103_001_UTF8_ORG.ZIP -> EN)
-            current_lang = zip_path.name[:2]
+            # Handle both uppercase and lowercase filenames
+            current_lang = zip_path.name[:2].upper()
 
             # Parse current file only
             with zipfile.ZipFile(zip_path, 'r') as zf:

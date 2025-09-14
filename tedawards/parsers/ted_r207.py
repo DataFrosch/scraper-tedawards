@@ -197,8 +197,9 @@ class TedR207Parser(BaseParser):
             if total_value_elem is not None:
                 try:
                     estimated_value = float(total_value_elem.get('FMTVAL', '0'))
-                except (ValueError, TypeError):
-                    pass
+                except (ValueError, TypeError) as e:
+                    logger.error(f"Error parsing estimated value from FMTVAL: {e}")
+                    raise
 
             # Extract contract type and location
             contract_type_elem = desc_section.find('.//{http://publications.europa.eu/TED_schema/Export}TYPE_CONTRACT')
@@ -265,8 +266,9 @@ class TedR207Parser(BaseParser):
                 if offers_elem is not None:
                     try:
                         offers_received = int(offers_elem.text)
-                    except (ValueError, TypeError):
-                        pass
+                    except (ValueError, TypeError) as e:
+                        logger.error(f"Error parsing offers received: {e}")
+                        raise
 
                 # Extract contract value
                 contract_value = None
@@ -279,8 +281,9 @@ class TedR207Parser(BaseParser):
                         currency_elem = award_section.find('.//{http://publications.europa.eu/TED_schema/Export}COSTS_RANGE_AND_CURRENCY_WITH_VAT_RATE')
                         if currency_elem is not None:
                             value_currency = currency_elem.get('CURRENCY')
-                    except (ValueError, TypeError):
-                        pass
+                    except (ValueError, TypeError) as e:
+                        logger.error(f"Error parsing contract value: {e}")
+                        raise
 
                 # Extract contractor information
                 contractors = []

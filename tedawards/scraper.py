@@ -47,17 +47,8 @@ class TedScraper:
                 # Process batch when it reaches size limit or at end
                 if len(award_batch) >= batch_size or i == total_files - 1:
                     if award_batch:
-                        try:
-                            db.save_award_data_batch(award_batch)
-                            logger.info(f"Saved batch of {len(award_batch)} awards ({i+1}/{total_files} files processed)")
-                        except Exception as e:
-                            logger.error(f"Error saving batch: {e}")
-                            # Fall back to individual saves
-                            for award in award_batch:
-                                try:
-                                    db.save_award_data(award)
-                                except Exception as e2:
-                                    logger.error(f"Error saving individual award: {e2}")
+                        db.save_award_data_batch(award_batch)
+                        logger.info(f"Saved batch of {len(award_batch)} awards ({i+1}/{total_files} files processed)")
                         award_batch.clear()
 
         logger.info(f"Processed {processed} award notices for {target_date}")
@@ -68,10 +59,7 @@ class TedScraper:
 
         current_date = start_date
         while current_date <= end_date:
-            try:
-                self.scrape_date(current_date)
-            except Exception as e:
-                logger.error(f"Error processing {current_date}: {e}")
+            self.scrape_date(current_date)
 
             current_date += timedelta(days=1)
 
@@ -90,9 +78,9 @@ class TedScraper:
         archive_path = self.data_dir / f"{date_str}.tar.gz"
         extract_dir = self.data_dir / date_str
 
-        # Check if already downloaded and extracted
-        existing_xml = list(extract_dir.glob('**/*.xml')) if extract_dir.exists() else []
-        existing_zip = list(extract_dir.glob('**/*.ZIP')) if extract_dir.exists() else []
+        # Check if already downloaded and extracted - case insensitive
+        existing_xml = (list(extract_dir.glob('**/*.xml')) + list(extract_dir.glob('**/*.XML'))) if extract_dir.exists() else []
+        existing_zip = (list(extract_dir.glob('**/*.zip')) + list(extract_dir.glob('**/*.ZIP'))) if extract_dir.exists() else []
 
         if existing_xml or existing_zip:
             logger.info(f"Using existing data for {date_str}")
@@ -105,7 +93,7 @@ class TedScraper:
             response.raise_for_status()
         except requests.RequestException as e:
             logger.error(f"Failed to download package: {e}")
-            return []
+            raise
 
         # Save and extract
         archive_path.write_bytes(response.content)
@@ -117,14 +105,14 @@ class TedScraper:
                 tar_file.extractall(extract_dir)
         except tarfile.TarError as e:
             logger.error(f"Failed to extract package: {e}")
-            return []
+            raise
 
         # Clean up archive file
         archive_path.unlink()
 
-        # Look for both XML files (newer format) and ZIP files (2007 text format)
-        xml_files = list(extract_dir.glob('**/*.xml'))
-        zip_files = list(extract_dir.glob('**/*.ZIP'))
+        # Look for both XML files (newer format) and ZIP files (2007 text format) - case insensitive
+        xml_files = list(extract_dir.glob('**/*.xml')) + list(extract_dir.glob('**/*.XML'))
+        zip_files = list(extract_dir.glob('**/*.zip')) + list(extract_dir.glob('**/*.ZIP'))
 
         all_files = xml_files + zip_files
         logger.info(f"Extracted {len(xml_files)} XML files and {len(zip_files)} ZIP files")
@@ -133,8 +121,8 @@ class TedScraper:
     def _process_file(self, file_path: Path, db: DatabaseManager) -> List:
         """Process a single file (XML or ZIP) and return award data."""
         try:
-            # For ZIP files, use a different document ID extraction logic
-            if file_path.suffix == '.ZIP':
+            # For ZIP files, use a different document ID extraction logic - case insensitive
+            if file_path.suffix.upper() == '.ZIP':
                 # Extract date from ZIP filename (e.g., EN_20070103_001_UTF8_ORG.ZIP)
                 import re
                 match = re.search(r'(\d{8})', file_path.name)
@@ -148,7 +136,7 @@ class TedScraper:
 
             # Check if any document from this file already exists (simple optimization)
             # For text files, we'll need to check individual documents later
-            if file_path.suffix != '.ZIP' and db.document_exists(doc_id):
+            if file_path.suffix.upper() != '.ZIP' and db.document_exists(doc_id):
                 logger.debug(f"Skipping {file_path.name} - already processed")
                 return []
 
@@ -181,4 +169,4 @@ class TedScraper:
 
         except Exception as e:
             logger.error(f"Error processing {file_path}: {e}")
-            return []
+            raise
