@@ -22,6 +22,16 @@ class DocumentModel(BaseModel):
     original_language: Optional[str] = Field(None, description="Original language code")
     source_country: Optional[str] = Field(None, description="Source country code")
 
+    @validator('form_language', 'original_language', pre=True)
+    def normalize_language_codes(cls, v):
+        """Normalize language codes to lowercase for consistency."""
+        return v.lower() if v else v
+
+    @validator('source_country', pre=True)
+    def normalize_country_code(cls, v):
+        """Normalize country codes to uppercase for consistency (ISO standard)."""
+        return v.upper() if v else v
+
 
 class ContractingBodyModel(BaseModel):
     """Contracting body model."""
@@ -39,6 +49,11 @@ class ContractingBodyModel(BaseModel):
     url_buyer: Optional[str] = Field(None, description="Buyer profile URL")
     authority_type_code: Optional[str] = Field(None, description="Authority type code")
     main_activity_code: Optional[str] = Field(None, description="Main activity code")
+
+    @validator('country_code', pre=True)
+    def normalize_country_code(cls, v):
+        """Normalize country codes to uppercase for consistency (ISO standard)."""
+        return v.upper() if v else v
 
 
 class ContractModel(BaseModel):
@@ -68,6 +83,11 @@ class ContractorModel(BaseModel):
     fax: Optional[str] = Field(None, description="Fax number")
     url: Optional[str] = Field(None, description="URL")
     is_sme: bool = Field(False, description="Is small/medium enterprise")
+
+    @validator('country_code', pre=True)
+    def normalize_country_code(cls, v):
+        """Normalize country codes to uppercase for consistency (ISO standard)."""
+        return v.upper() if v else v
 
 
 class AwardModel(BaseModel):
