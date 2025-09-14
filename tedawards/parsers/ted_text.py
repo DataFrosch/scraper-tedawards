@@ -239,7 +239,7 @@ class TedTextParser(BaseParser):
                 town=record.get('TW', ''),
                 postal_code='',
                 country_code=record.get('CY', ''),
-                nuts_code='',
+                nuts_code=None,
                 contact_point='',
                 phone='',
                 email='',
@@ -260,7 +260,7 @@ class TedTextParser(BaseParser):
                 total_value_currency='EUR',
                 procedure_type_code='',
                 award_criteria_code='',
-                performance_nuts_code=''
+                performance_nuts_code=None
             )
 
             contractors = self._parse_contractors_as_models(record.get('TX', ''))
@@ -407,7 +407,7 @@ class TedTextParser(BaseParser):
                         town='',
                         postal_code='',
                         country_code='',  # Will be extracted if pattern is found
-                        nuts_code='',
+                        nuts_code=None,
                         phone='',
                         email='',
                         fax='',

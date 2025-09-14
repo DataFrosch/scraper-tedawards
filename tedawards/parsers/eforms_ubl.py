@@ -176,7 +176,7 @@ class EFormsUBLParser(BaseParser):
                 'town': XmlUtils.get_text_with_namespace(contracting_body, './/cac:PostalAddress/cbc:CityName', ns),
                 'postal_code': XmlUtils.get_text_with_namespace(contracting_body, './/cac:PostalAddress/cbc:PostalZone', ns),
                 'country_code': XmlUtils.get_text_with_namespace(contracting_body, './/cac:PostalAddress/cac:Country/cbc:IdentificationCode', ns),
-                'nuts_code': '',  # TODO: Extract NUTS if available
+                'nuts_code': None,  # TODO: Extract NUTS if available
                 'contact_point': '',
                 'phone': XmlUtils.get_text_with_namespace(contracting_body, './/cac:Contact/cbc:Telephone', ns),
                 'email': XmlUtils.get_text_with_namespace(contracting_body, './/cac:Contact/cbc:ElectronicMail', ns),
