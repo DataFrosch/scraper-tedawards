@@ -10,6 +10,11 @@ from datetime import datetime
 from lxml import etree
 
 from .base import BaseParser
+from ..schema import (
+    TedParserResultModel, TedAwardDataModel, DocumentModel,
+    ContractingBodyModel, ContractModel, AwardModel, ContractorModel,
+    normalize_date_string
+)
 
 logger = logging.getLogger(__name__)
 
@@ -44,7 +49,7 @@ class TedR207Parser(BaseParser):
         """Return the format name for this parser."""
         return "TED R2.0.7"
 
-    def parse_xml_file(self, xml_file: Path) -> Optional[Dict]:
+    def parse_xml_file(self, xml_file: Path) -> Optional[TedParserResultModel]:
         """Parse a TED R2.0.7 XML file and extract award data."""
         try:
             tree = etree.parse(xml_file)
@@ -70,13 +75,20 @@ class TedR207Parser(BaseParser):
                 logger.debug(f"No awards found in {xml_file.name}")
                 return None
 
-            # Return data in expected database format
-            return {
-                'document': document_info,
-                'contracting_body': contracting_body,
-                'contract': contract_info,
-                'awards': awards
-            }
+            # Convert to Pydantic models
+            document_model = DocumentModel(**document_info)
+            contracting_body_model = ContractingBodyModel(**contracting_body)
+            contract_model = ContractModel(**contract_info)
+            award_models = [AwardModel(**award) for award in awards]
+
+            award_data = TedAwardDataModel(
+                document=document_model,
+                contracting_body=contracting_body_model,
+                contract=contract_model,
+                awards=award_models
+            )
+
+            return TedParserResultModel(awards=[award_data])
 
         except Exception as e:
             logger.error(f"Error parsing TED R2.0.7 file {xml_file}: {e}")
@@ -94,7 +106,7 @@ class TedR207Parser(BaseParser):
                 logger.debug(f"No publication date found in {xml_file.name}")
                 return None
 
-            pub_date = self._parse_date(pub_date_elem.text)
+            pub_date = normalize_date_string(pub_date_elem.text)
             if not pub_date:
                 logger.debug(f"Invalid publication date in {xml_file.name}")
                 return None
@@ -103,7 +115,7 @@ class TedR207Parser(BaseParser):
             dispatch_date_elem = root.find('.//{http://publications.europa.eu/TED_schema/Export}DS_DATE_DISPATCH')
             dispatch_date = None
             if dispatch_date_elem is not None:
-                dispatch_date = self._parse_date(dispatch_date_elem.text)
+                dispatch_date = normalize_date_string(dispatch_date_elem.text)
 
             # Extract other document metadata
             reception_id_elem = root.find('.//{http://publications.europa.eu/TED_schema/Export}RECEPTION_ID')
@@ -121,7 +133,7 @@ class TedR207Parser(BaseParser):
                 'edition': root.get('EDITION'),
                 'version': None,  # Legacy format doesn't have version info
                 'reception_id': reception_id_elem.text if reception_id_elem is not None else None,
-                'deletion_date': self._parse_date(deletion_date_elem.text) if deletion_date_elem is not None else None,
+                'deletion_date': normalize_date_string(deletion_date_elem.text) if deletion_date_elem is not None else None,
                 'form_language': form_language,
                 'official_journal_ref': oj_ref_elem.text if oj_ref_elem is not None else None,
                 'publication_date': pub_date,
@@ -159,7 +171,7 @@ class TedR207Parser(BaseParser):
             activity_elem = root.find('.//{http://publications.europa.eu/TED_schema/Export}MA_MAIN_ACTIVITIES')
 
             return {
-                'official_name': name_elem.text if name_elem is not None else None,
+                'official_name': name_elem.text if name_elem is not None else '',
                 'address': address_elem.text if address_elem is not None else None,
                 'town': town_elem.text if town_elem is not None else None,
                 'postal_code': postal_code_elem.text if postal_code_elem is not None else None,
@@ -224,7 +236,7 @@ class TedR207Parser(BaseParser):
                     total_value_currency = currency_elem.get('CURRENCY', 'EUR')
 
             return {
-                'title': title,
+                'title': title or '',
                 'reference_number': None,  # Not typically in legacy format
                 'short_description': description,
                 'main_cpv_code': cpv_code,
@@ -309,8 +321,7 @@ class TedR207Parser(BaseParser):
                     country_elem = contractor_elem.find('.//{http://publications.europa.eu/TED_schema/Export}COUNTRY')
 
                     contractor = {
-                        'official_name': org_elem.text if org_elem is not None else None,
-                        'national_id': None,  # Not available in legacy format
+                        'official_name': org_elem.text if org_elem is not None else '',
                         'address': addr_elem.text if addr_elem is not None else None,
                         'town': town_elem.text if town_elem is not None else None,
                         'postal_code': postal_elem.text if postal_elem is not None else None,
@@ -359,12 +370,3 @@ class TedR207Parser(BaseParser):
 
         return awards
 
-    def _parse_date(self, date_str: str) -> Optional[datetime]:
-        """Parse date string in YYYYMMDD format."""
-        if not date_str:
-            return None
-
-        try:
-            return datetime.strptime(date_str, '%Y%m%d').date()
-        except ValueError:
-            return None

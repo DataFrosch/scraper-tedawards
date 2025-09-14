@@ -1,6 +1,8 @@
 from abc import ABC, abstractmethod
 from pathlib import Path
-from typing import Dict, Optional
+from typing import Optional
+
+from ..schema import TedParserResultModel
 
 class BaseParser(ABC):
     """Base class for TED XML parsers."""
@@ -11,8 +13,8 @@ class BaseParser(ABC):
         pass
 
     @abstractmethod
-    def parse_xml_file(self, xml_file: Path) -> Optional[Dict]:
-        """Parse XML file and return structured data."""
+    def parse_xml_file(self, xml_file: Path) -> Optional[TedParserResultModel]:
+        """Parse XML file and return structured data using Pydantic schema."""
         pass
 
     @abstractmethod

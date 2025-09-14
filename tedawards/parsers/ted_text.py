@@ -11,6 +11,11 @@ from typing import Dict, List, Optional
 from datetime import datetime
 
 from .base import BaseParser
+from ..schema import (
+    TedParserResultModel, TedAwardDataModel, DocumentModel,
+    ContractingBodyModel, ContractModel, AwardModel, ContractorModel,
+    normalize_date_string
+)
 
 logger = logging.getLogger(__name__)
 
@@ -40,7 +45,7 @@ class TedTextParser(BaseParser):
         """Return the format name for this parser."""
         return "TED Text Format"
 
-    def parse_xml_file(self, file_path: Path) -> Optional[Dict]:
+    def parse_xml_file(self, file_path: Path) -> Optional[TedParserResultModel]:
         """Parse a TED text format ZIP file and extract award data."""
         try:
             # This method name is misleading as it's not XML, but kept for interface compatibility
@@ -49,7 +54,7 @@ class TedTextParser(BaseParser):
             logger.error(f"Error parsing {file_path.name}: {e}")
             return None
 
-    def _parse_text_zip_with_original_language_priority(self, zip_path: Path) -> Optional[Dict]:
+    def _parse_text_zip_with_original_language_priority(self, zip_path: Path) -> Optional[TedParserResultModel]:
         """Parse ZIP file, but only return records where current file language matches original language."""
         try:
             # Extract current file's language from filename (e.g., EN_20070103_001_UTF8_ORG.ZIP -> EN)
@@ -91,7 +96,7 @@ class TedTextParser(BaseParser):
                             logger.debug(f"Skipping ND {nd} - original language {original_lang}, current file {current_lang}")
 
                 if award_records:
-                    return {'awards': award_records}
+                    return TedParserResultModel(awards=award_records)
 
         except Exception as e:
             logger.error(f"Error parsing ZIP file {zip_path}: {e}")
@@ -199,7 +204,7 @@ class TedTextParser(BaseParser):
 
         return records
 
-    def _convert_to_standard_format(self, record: Dict) -> Optional[Dict]:
+    def _convert_to_standard_format(self, record: Dict) -> Optional[TedAwardDataModel]:
         """Convert TED text format record to standardized format."""
         try:
             # Extract universal document identifier (ND field is consistent across languages)
@@ -239,7 +244,6 @@ class TedTextParser(BaseParser):
             ref_number = record.get('RN', '')
             oj_ref = record.get('OJ', '')
             dispatch_date = record.get('DR', '')
-            source_date = record.get('DS', '')
 
             # Parse dates
             dispatch_date_obj = None
@@ -249,70 +253,87 @@ class TedTextParser(BaseParser):
                 except ValueError:
                     pass
 
-            # Build award data structure matching R2.09 parser format
-            full_doc_id = f"{document_id}-2007"
-            award_data = {
-                'document_id': full_doc_id,  # Add this for the scraper logging
-                'document': {
-                    'doc_id': full_doc_id,
-                    'edition': '1',
-                    'version': '1',
-                    'reception_id': ref_number,
-                    'deletion_date': None,
-                    'form_language': record.get('OL', 'EN'),
-                    'official_journal_ref': oj_ref,
-                    'publication_date': pub_date.isoformat() if pub_date else None,
-                    'dispatch_date': dispatch_date_obj.isoformat() if dispatch_date_obj else None,
-                    'original_language': record.get('OL', 'EN'),
-                    'source_country': record.get('CY', '')
-                },
-                'contracting_body': {
-                    'official_name': record.get('AU', ''),
-                    'address': '',
-                    'town': record.get('TW', ''),
-                    'postal_code': '',
-                    'country_code': record.get('CY', ''),
-                    'nuts_code': '',
-                    'contact_point': '',
-                    'phone': '',
-                    'email': '',
-                    'fax': '',
-                    'url_general': '',
-                    'url_buyer': '',
-                    'authority_type_code': '',
-                    'main_activity_code': ''
-                },
-                'contract': {
-                    'title': record.get('TI', ''),
-                    'reference_number': ref_number,
-                    'short_description': record.get('TX', '')[:1000] if record.get('TX') else '',  # Truncate for database
-                    'main_cpv_code': self._parse_main_cpv_code(record.get('PC', '')),
-                    'contract_nature_code': self._parse_contract_nature_code(record.get('NC', '')),
-                    'total_value': self._parse_contract_value(record.get('TX', '')),
-                    'total_value_currency': 'EUR',
-                    'procedure_type_code': '',
-                    'award_criteria_code': '',
-                    'performance_nuts_code': ''
-                },
-                'awards': [{
-                    'award_title': record.get('TI', ''),
-                    'conclusion_date': self._parse_award_date(record.get('TX', '')),
-                    'contract_number': ref_number,
-                    'tenders_received': self._parse_offers_received(record.get('TX', '')),
-                    'tenders_received_sme': None,
-                    'tenders_received_other_eu': None,
-                    'tenders_received_non_eu': None,
-                    'tenders_received_electronic': None,
-                    'awarded_value': self._parse_contract_value(record.get('TX', '')),
-                    'awarded_value_currency': 'EUR',
-                    'subcontracted_value': None,
-                    'subcontracted_value_currency': None,
-                    'subcontracting_description': '',
-                    'contractors': self._parse_contractors(record.get('TX', ''))
-                }]
-            }
+            # Parse award date
+            award_date = None
+            award_date_str = self._parse_award_date(record.get('TX', ''))
+            if award_date_str:
+                try:
+                    award_date = datetime.fromisoformat(award_date_str).date()
+                except ValueError:
+                    pass
 
-            return award_data
+            # Build award data using Pydantic models
+            full_doc_id = f"{document_id}-2007"
+
+            document = DocumentModel(
+                doc_id=full_doc_id,
+                edition='1',
+                version='1',
+                reception_id=ref_number,
+                deletion_date=None,
+                form_language=record.get('OL', ''),
+                official_journal_ref=oj_ref,
+                publication_date=pub_date,
+                dispatch_date=dispatch_date_obj,
+                original_language=record.get('OL', ''),
+                source_country=record.get('CY', '')
+            )
+
+            contracting_body = ContractingBodyModel(
+                official_name=record.get('AU', ''),
+                address='',
+                town=record.get('TW', ''),
+                postal_code='',
+                country_code=record.get('CY', ''),
+                nuts_code='',
+                contact_point='',
+                phone='',
+                email='',
+                fax='',
+                url_general='',
+                url_buyer='',
+                authority_type_code='',
+                main_activity_code=''
+            )
+
+            contract = ContractModel(
+                title=record.get('TI', ''),
+                reference_number=ref_number,
+                short_description=record.get('TX', ''),
+                main_cpv_code=self._parse_main_cpv_code(record.get('PC', '')),
+                contract_nature_code=self._parse_contract_nature_code(record.get('NC', '')),
+                total_value=self._parse_contract_value(record.get('TX', '')),
+                total_value_currency='EUR',
+                procedure_type_code='',
+                award_criteria_code='',
+                performance_nuts_code=''
+            )
+
+            contractors = self._parse_contractors_as_models(record.get('TX', ''))
+
+            award = AwardModel(
+                award_title=record.get('TI', ''),
+                conclusion_date=award_date,
+                contract_number=ref_number,
+                tenders_received=self._parse_offers_received(record.get('TX', '')),
+                tenders_received_sme=None,
+                tenders_received_other_eu=None,
+                tenders_received_non_eu=None,
+                tenders_received_electronic=None,
+                awarded_value=self._parse_contract_value(record.get('TX', '')),
+                awarded_value_currency='EUR',
+                subcontracted_value=None,
+                subcontracted_value_currency=None,
+                subcontracting_description='',
+                contractors=contractors
+            )
+
+            return TedAwardDataModel(
+                document=document,
+                contracting_body=contracting_body,
+                contract=contract,
+                awards=[award]
+            )
 
         except Exception as e:
             logger.error(f"Error converting record to standard format: {e}")
@@ -397,7 +418,50 @@ class TedTextParser(BaseParser):
                         'is_sme': False
                     })
 
-        return contractors if contractors else [{'official_name': 'Not specified', 'address': '', 'town': '', 'postal_code': '', 'country_code': '', 'nuts_code': '', 'phone': '', 'email': '', 'fax': '', 'url': '', 'is_sme': False}]
+        return contractors if contractors else [{'official_name': '', 'address': '', 'town': '', 'postal_code': '', 'country_code': '', 'nuts_code': '', 'phone': '', 'email': '', 'fax': '', 'url': '', 'is_sme': False}]
+
+    def _parse_contractors_as_models(self, tx_value: str) -> List[ContractorModel]:
+        """Extract contractor information from TX field and return as ContractorModel objects."""
+        contractors = []
+
+        if not tx_value:
+            return []
+
+        # Look for "Name and address of successful tenderer" section
+        success_match = re.search(r'Name and address of successful tenderer[:\s]*(.+?)(?=\n\s*\n|\Z)', tx_value, re.DOTALL | re.IGNORECASE)
+
+        if success_match:
+            contractor_text = success_match.group(1).strip()
+
+            # Split by "Lot" if multiple lots
+            lot_parts = re.split(r'Lot\s+\d+\s*[—\-]', contractor_text)
+
+            for i, part in enumerate(lot_parts):
+                if not part.strip():
+                    continue
+
+                # Extract company name (usually the first line or before the first comma)
+                lines = part.strip().split('\n')
+                if lines:
+                    first_line = lines[0].strip()
+                    # Company name is usually before the first comma or the entire first line
+                    company_name = first_line.split(',')[0].strip()
+
+                    contractors.append(ContractorModel(
+                        official_name=company_name,
+                        address=part.strip(),
+                        town='',
+                        postal_code='',
+                        country_code='',  # Will be extracted if pattern is found
+                        nuts_code='',
+                        phone='',
+                        email='',
+                        fax='',
+                        url='',
+                        is_sme=False
+                    ))
+
+        return contractors
 
     def _parse_contract_value(self, tx_value: str) -> Optional[float]:
         """Extract contract value from TX field."""

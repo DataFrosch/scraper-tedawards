@@ -31,12 +31,34 @@ class TedScraper:
             logger.warning(f"No files found for {target_date}")
             return
 
-        # Process files (XML or ZIP)
+        # Process files (XML or ZIP) with batch processing
         processed = 0
+        batch_size = 50  # Process files in batches to improve performance
         with DatabaseManager() as db:
-            for file_path in files:
-                if self._process_file(file_path, db):
-                    processed += 1
+            award_batch = []
+            total_files = len(files)
+
+            for i, file_path in enumerate(files):
+                awards = self._process_file(file_path, db)
+                if awards:
+                    award_batch.extend(awards)
+                    processed += len(awards)
+
+                # Process batch when it reaches size limit or at end
+                if len(award_batch) >= batch_size or i == total_files - 1:
+                    if award_batch:
+                        try:
+                            db.save_award_data_batch(award_batch)
+                            logger.info(f"Saved batch of {len(award_batch)} awards ({i+1}/{total_files} files processed)")
+                        except Exception as e:
+                            logger.error(f"Error saving batch: {e}")
+                            # Fall back to individual saves
+                            for award in award_batch:
+                                try:
+                                    db.save_award_data(award)
+                                except Exception as e2:
+                                    logger.error(f"Error saving individual award: {e2}")
+                        award_batch.clear()
 
         logger.info(f"Processed {processed} award notices for {target_date}")
 
@@ -108,8 +130,8 @@ class TedScraper:
         logger.info(f"Extracted {len(xml_files)} XML files and {len(zip_files)} ZIP files")
         return all_files
 
-    def _process_file(self, file_path: Path, db: DatabaseManager) -> bool:
-        """Process a single file (XML or ZIP) and save to database."""
+    def _process_file(self, file_path: Path, db: DatabaseManager) -> List:
+        """Process a single file (XML or ZIP) and return award data."""
         try:
             # For ZIP files, use a different document ID extraction logic
             if file_path.suffix == '.ZIP':
@@ -124,43 +146,39 @@ class TedScraper:
             else:
                 doc_id = file_path.stem.replace('_', '-')
 
-            if db.document_exists(doc_id):
+            # Check if any document from this file already exists (simple optimization)
+            # For text files, we'll need to check individual documents later
+            if file_path.suffix != '.ZIP' and db.document_exists(doc_id):
                 logger.debug(f"Skipping {file_path.name} - already processed")
-                return False
+                return []
 
             # Get appropriate parser for this file
             parser = self.parser_factory.get_parser(file_path)
             if not parser:
                 logger.debug(f"No parser available for {file_path.name}")
-                return False
+                return []
 
             # Parse file
             data = parser.parse_xml_file(file_path)  # Method name is misleading but kept for compatibility
             if not data:
                 logger.debug(f"Failed to parse {file_path.name} with {parser.get_format_name()}")
-                return False
+                return []
 
-            logger.debug(f"Parsed {file_path.name} using {parser.get_format_name()}")
+            logger.debug(f"Parsed {file_path.name} using {parser.get_format_name()}, found {len(data.awards)} awards")
 
-            # For text format, data might contain multiple awards
-            if isinstance(data, dict) and 'awards' in data:
-                saved_count = 0
-                for award_data in data['awards']:
-                    try:
-                        db.save_award_data(award_data)
-                        saved_count += 1
-                        logger.info(f"Saved award data for document {award_data.get('document_id', 'unknown')}")
-                    except Exception as e:
-                        logger.error(f"Error saving award data: {e}")
+            # Filter out already processed documents and return new ones
+            new_awards = []
+            for award_data in data.awards:
+                if not db.document_exists(award_data.document.doc_id):
+                    new_awards.append(award_data)
+                else:
+                    logger.debug(f"Skipping document {award_data.document.doc_id} - already exists")
 
-                logger.debug(f"Processed {file_path.name} - saved {saved_count} awards")
-                return saved_count > 0
-            else:
-                # Single award format
-                db.save_award_data(data)
-                logger.debug(f"Processed {file_path.name}")
-                return True
+            if new_awards:
+                logger.debug(f"Processed {file_path.name} - {len(new_awards)} new awards")
+
+            return new_awards
 
         except Exception as e:
             logger.error(f"Error processing {file_path}: {e}")
-            return False
+            return []

@@ -5,6 +5,11 @@ from lxml import etree
 from datetime import datetime
 
 from .base import BaseParser
+from ..schema import (
+    TedParserResultModel, TedAwardDataModel, DocumentModel,
+    ContractingBodyModel, ContractModel, AwardModel, ContractorModel,
+    normalize_date_string
+)
 
 logger = logging.getLogger(__name__)
 
@@ -25,7 +30,7 @@ class EFormsUBLParser(BaseParser):
         """Return format name."""
         return "eForms UBL ContractAwardNotice"
 
-    def parse_xml_file(self, xml_path: Path) -> Optional[Dict]:
+    def parse_xml_file(self, xml_path: Path) -> Optional[TedParserResultModel]:
         """Parse an eForms UBL XML file and return structured data."""
         try:
             tree = etree.parse(xml_path)
@@ -62,12 +67,20 @@ class EFormsUBLParser(BaseParser):
             if not awards:
                 return None
 
-            return {
-                'document': doc_data,
-                'contracting_body': contracting_body,
-                'contract': contract,
-                'awards': awards
-            }
+            # Convert to Pydantic models
+            document_model = DocumentModel(**doc_data)
+            contracting_body_model = ContractingBodyModel(**contracting_body)
+            contract_model = ContractModel(**contract)
+            award_models = [AwardModel(**award) for award in awards]
+
+            award_data = TedAwardDataModel(
+                document=document_model,
+                contracting_body=contracting_body_model,
+                contract=contract_model,
+                awards=award_models
+            )
+
+            return TedParserResultModel(awards=[award_data])
 
         except Exception as e:
             logger.error(f"Error parsing eForms UBL file {xml_path}: {e}")
@@ -97,8 +110,7 @@ class EFormsUBLParser(BaseParser):
             )
 
             # Parse the publication date
-            from datetime import date
-            pub_date = self._parse_date(pub_date_str) if pub_date_str else None
+            pub_date = normalize_date_string(pub_date_str) if pub_date_str else None
 
             # If no publication date found, this is an error - don't fallback to current date
             if pub_date is None:
@@ -167,7 +179,6 @@ class EFormsUBLParser(BaseParser):
 
             return {
                 'official_name': self._get_text(contracting_body, './/cac:PartyName/cbc:Name', ns) or '',
-                'national_id': self._get_text(contracting_body, './/cac:PartyLegalEntity/cbc:CompanyID', ns),
                 'address': self._get_text(contracting_body, './/cac:PostalAddress/cbc:StreetName', ns),
                 'town': self._get_text(contracting_body, './/cac:PostalAddress/cbc:CityName', ns),
                 'postal_code': self._get_text(contracting_body, './/cac:PostalAddress/cbc:PostalZone', ns),
@@ -216,24 +227,16 @@ class EFormsUBLParser(BaseParser):
             nuts_code = self._get_text(root, './/cac:ProcurementProject/cac:RealizedLocation/cac:Address/cbc:CountrySubentityCode', ns)
 
             return {
-                'title': title,
+                'title': title or '',
                 'reference_number': ref_number,
                 'short_description': title,
-                'main_cpv_code': main_cpv or '',
-                'contract_nature_code': contract_nature_code or '',
-                'contract_nature': contract_nature_code or '',
+                'main_cpv_code': main_cpv,
+                'contract_nature_code': contract_nature_code,
                 'total_value': total_value,
                 'total_value_currency': total_currency,
-                'estimated_value': None,
-                'estimated_value_currency': '',
-                'has_lots': False,
-                'lot_count': 1,
-                'procedure_type_code': procedure_type_code or '',
-                'procedure_type': procedure_type_code or '',
-                'award_criteria_code': '',
-                'award_criteria': '',
-                'is_eu_funded': False,
-                'performance_nuts_code': nuts_code or ''
+                'procedure_type_code': procedure_type_code,
+                'award_criteria_code': None,
+                'performance_nuts_code': nuts_code
             }
         except Exception as e:
             logger.error(f"Error extracting contract: {e}")
@@ -250,7 +253,7 @@ class EFormsUBLParser(BaseParser):
             for lot_result in lot_results:
                 # Get conclusion date
                 conclusion_date = self._get_text(root, './/efac:SettledContract/cbc:IssueDate', ns)
-                conclusion_date_parsed = self._parse_date(conclusion_date) if conclusion_date else None
+                conclusion_date_parsed = normalize_date_string(conclusion_date) if conclusion_date else None
 
                 # Get tender information
                 tender_amount = root.xpath('.//efac:LotTender/cac:LegalMonetaryTotal/cbc:PayableAmount', namespaces=ns)
@@ -264,28 +267,24 @@ class EFormsUBLParser(BaseParser):
                 contractors = self._extract_contractors(root, ns)
 
                 award = {
-                    'contract_number': self._get_text(root, './/efac:SettledContract/efac:ContractReference/cbc:ID', ns),
-                    'award_title': self._get_text(root, './/efac:SettledContract/cbc:Title', ns) or '',
+                    'award_title': self._get_text(root, './/efac:SettledContract/cbc:Title', ns),
                     'conclusion_date': conclusion_date_parsed,
-                    'is_awarded': True,
-                    'unsuccessful_reason': '',
-                    'tenders_received': 1,  # TODO: Extract actual tender count
+                    'contract_number': self._get_text(root, './/efac:SettledContract/efac:ContractReference/cbc:ID', ns),
+                    'tenders_received': None,  # Extract from XML if available
                     'tenders_received_sme': None,
                     'tenders_received_other_eu': None,
                     'tenders_received_non_eu': None,
-                    'tenders_received_electronic': 1,
+                    'tenders_received_electronic': None,
                     'awarded_value': awarded_value,
                     'awarded_value_currency': awarded_currency,
-                    'awarded_value_eur': None,  # TODO: Convert to EUR if needed
-                    'is_subcontracted': False,  # TODO: Extract subcontracting info
                     'subcontracted_value': None,
-                    'subcontracted_value_currency': '',
-                    'subcontracting_description': '',
+                    'subcontracted_value_currency': None,
+                    'subcontracting_description': None,
                     'contractors': contractors
                 }
                 awards.append(award)
 
-            return awards if awards else [self._create_default_award(root, ns)]
+            return awards
 
         except Exception as e:
             logger.error(f"Error extracting awards: {e}")
@@ -313,68 +312,31 @@ class EFormsUBLParser(BaseParser):
 
                     # Only include organizations that are winning tenderers
                     if org_id in winning_org_ids:
-                        contractor = {
-                            'official_name': self._get_text(company, './/cac:PartyName/cbc:Name', ns) or '',
-                            'national_id': self._get_text(company, './/cac:PartyLegalEntity/cbc:CompanyID', ns),
-                            'address': self._get_text(company, './/cac:PostalAddress/cbc:StreetName', ns),
-                            'town': self._get_text(company, './/cac:PostalAddress/cbc:CityName', ns),
-                            'postal_code': self._get_text(company, './/cac:PostalAddress/cbc:PostalZone', ns),
-                            'country_code': self._get_text(company, './/cac:PostalAddress/cac:Country/cbc:IdentificationCode', ns),
-                            'nuts_code': '',
-                            'phone': self._get_text(company, './/cac:Contact/cbc:Telephone', ns),
-                            'email': self._get_text(company, './/cac:Contact/cbc:ElectronicMail', ns),
-                            'fax': '',
-                            'url': self._get_text(company, './/cbc:WebsiteURI', ns),
-                            'is_sme': False
-                        }
-                        contractors.append(contractor)
+                        official_name = self._get_text(company, './/cac:PartyName/cbc:Name', ns)
+                        if official_name:  # Only add if we have a name
+                            contractor = {
+                                'official_name': official_name,
+                                'address': self._get_text(company, './/cac:PostalAddress/cbc:StreetName', ns),
+                                'town': self._get_text(company, './/cac:PostalAddress/cbc:CityName', ns),
+                                'postal_code': self._get_text(company, './/cac:PostalAddress/cbc:PostalZone', ns),
+                                'country_code': self._get_text(company, './/cac:PostalAddress/cac:Country/cbc:IdentificationCode', ns),
+                                'nuts_code': None,
+                                'phone': self._get_text(company, './/cac:Contact/cbc:Telephone', ns),
+                                'email': self._get_text(company, './/cac:Contact/cbc:ElectronicMail', ns),
+                                'fax': None,
+                                'url': self._get_text(company, './/cbc:WebsiteURI', ns),
+                                'is_sme': False
+                            }
+                            contractors.append(contractor)
 
-            # If no contractors found, create a default one
-            if not contractors:
-                contractors.append({
-                    'official_name': 'Unknown Contractor',
-                    'national_id': '',
-                    'address': '',
-                    'town': '',
-                    'postal_code': '',
-                    'country_code': '',
-                    'nuts_code': '',
-                    'phone': '',
-                    'email': '',
-                    'fax': '',
-                    'url': '',
-                    'is_sme': False
-                })
-
+            # If no contractors found, return empty list (will be handled by AwardModel)
             return contractors
         except Exception as e:
             logger.error(f"Error extracting contractors: {e}")
             return []
 
-    def _create_default_award(self, root, ns) -> Dict:
-        """Create a default award when no lot results are found."""
-        return {
-            'contract_number': '',
-            'award_title': self._get_text(root, './/efac:SettledContract/cbc:Title', ns) or '',
-            'conclusion_date': None,
-            'is_awarded': True,
-            'unsuccessful_reason': '',
-            'tenders_received': 1,
-            'tenders_received_sme': None,
-            'tenders_received_other_eu': None,
-            'tenders_received_non_eu': None,
-            'tenders_received_electronic': 1,
-            'awarded_value': None,
-            'awarded_value_currency': '',
-            'awarded_value_eur': None,
-            'is_subcontracted': False,
-            'subcontracted_value': None,
-            'subcontracted_value_currency': '',
-            'subcontracting_description': '',
-            'contractors': self._extract_contractors(root, ns)
-        }
 
-    def _get_text(self, elem, xpath, ns=None, default=''):
+    def _get_text(self, elem, xpath, ns=None, default=None):
         """Get text content from xpath."""
         try:
             result = elem.xpath(xpath, namespaces=ns) if ns else elem.xpath(xpath)
@@ -382,7 +344,7 @@ class EFormsUBLParser(BaseParser):
         except Exception:
             return default
 
-    def _get_attr(self, elem, xpath, attr, ns=None, default=''):
+    def _get_attr(self, elem, xpath, attr, ns=None, default=None):
         """Get attribute value from xpath."""
         try:
             result = elem.xpath(xpath, namespaces=ns) if ns else elem.xpath(xpath)
@@ -399,28 +361,3 @@ class EFormsUBLParser(BaseParser):
         except (ValueError, TypeError):
             return default
 
-    def _parse_date(self, date_str):
-        """Parse date string to date object."""
-        if not date_str:
-            return None
-
-        try:
-            # Clean the date string - remove timezone info and time
-            clean_date = date_str.split('+')[0].split('-')[0:3]  # Keep only YYYY-MM-DD parts
-            if len(clean_date) == 3:
-                clean_date = '-'.join(clean_date)
-            else:
-                clean_date = date_str.split('+')[0].split('T')[0].split('Z')[0]
-
-            # Try different formats
-            formats = ['%Y-%m-%d', '%Y%m%d']
-            for fmt in formats:
-                try:
-                    return datetime.strptime(clean_date, fmt).date()
-                except ValueError:
-                    continue
-
-        except Exception as e:
-            logger.debug(f"Date parsing error for '{date_str}': {e}")
-
-        return None

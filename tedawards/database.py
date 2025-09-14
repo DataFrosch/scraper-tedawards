@@ -4,6 +4,7 @@ from psycopg2.extras import RealDictCursor, execute_values
 from pathlib import Path
 from typing import Dict, List
 from .config import config
+from .schema import TedAwardDataModel
 
 logger = logging.getLogger(__name__)
 
@@ -12,6 +13,13 @@ class DatabaseManager:
 
     def __init__(self):
         self.conn = None
+        self._reference_data_cache = {
+            'languages': set(),
+            'countries': set(),
+            'nuts_codes': set(),
+            'currencies': set(),
+            'cpv_codes': set()
+        }
 
     def connect(self):
         """Connect to PostgreSQL database."""
@@ -49,36 +57,35 @@ class DatabaseManager:
             cur.execute("SELECT 1 FROM ted_documents WHERE doc_id = %s", (doc_id,))
             return cur.fetchone() is not None
 
-    def save_award_data(self, data: Dict):
+    def save_award_data(self, data: TedAwardDataModel):
         """Save parsed award data to database."""
         try:
             with self.conn.cursor() as cur:
-                # Insert reference data first
-                self._ensure_reference_data(cur, data)
+                # Collect reference data
+                self._collect_reference_data(data)
+
+                # Flush reference data in smaller batches for single records
+                self._flush_reference_data(cur)
 
                 # Save document
-                doc_data = data['document']
-                self._insert_document(cur, doc_data)
+                self._insert_document(cur, data.document.dict())
 
                 # Save contracting body
-                cb_data = data['contracting_body']
-                cb_id = self._insert_contracting_body(cur, doc_data['doc_id'], cb_data)
+                cb_id = self._insert_contracting_body(cur, data.document.doc_id, data.contracting_body.dict())
 
                 # Save contract
-                contract_data = data['contract']
-                contract_id = self._insert_contract(cur, doc_data['doc_id'], cb_id, contract_data)
+                contract_id = self._insert_contract(cur, data.document.doc_id, cb_id, data.contract.dict())
 
                 # Save awards
-                for award_data in data['awards']:
-                    award_id = self._insert_award(cur, contract_id, award_data)
+                for award_data in data.awards:
+                    award_id = self._insert_award(cur, contract_id, award_data.dict())
 
-                    # Save contractors
-                    for contractor_data in award_data['contractors']:
-                        contractor_id = self._insert_contractor(cur, contractor_data)
+                    for contractor_data in award_data.contractors:
+                        contractor_id = self._insert_contractor(cur, contractor_data.dict())
                         self._link_award_contractor(cur, award_id, contractor_id)
 
             self.conn.commit()
-            logger.info(f"Saved award data for document {doc_data['doc_id']}")
+            logger.info(f"Saved award data for document {data.document.doc_id}")
 
         except Exception as e:
             self.conn.rollback()
@@ -187,99 +194,149 @@ class DatabaseManager:
         """
         cur.execute(sql, (award_id, contractor_id))
 
-    def _ensure_reference_data(self, cur, data: Dict):
-        """Insert reference data found in the XML."""
-
+    def _collect_reference_data(self, data: TedAwardDataModel):
+        """Collect reference data from award data into cache."""
         # Languages
-        languages = set()
-        languages.add(data['document']['form_language'])
-        if data['document']['original_language']:
-            languages.add(data['document']['original_language'])
+        if data.document.form_language:
+            self._reference_data_cache['languages'].add(data.document.form_language)
+        if data.document.original_language:
+            self._reference_data_cache['languages'].add(data.document.original_language)
+        self._reference_data_cache['languages'].add('')  # Empty case
 
-        # Add empty string for NULL/empty cases
-        languages.add('')
+        # Countries
+        if data.document.source_country:
+            self._reference_data_cache['countries'].add(data.document.source_country)
+        if data.contracting_body.country_code:
+            self._reference_data_cache['countries'].add(data.contracting_body.country_code)
 
-        for lang in languages:
-            cur.execute(
-                "INSERT INTO languages (code, name) VALUES (%s, %s) ON CONFLICT (code) DO NOTHING",
-                (lang, lang if lang else 'Unknown')
+        for award_data in data.awards:
+            for contractor in award_data.contractors:
+                if contractor.country_code:
+                    self._reference_data_cache['countries'].add(contractor.country_code)
+
+        self._reference_data_cache['countries'].add('')  # Empty case
+
+        # NUTS codes
+        if data.contracting_body.nuts_code:
+            self._reference_data_cache['nuts_codes'].add(data.contracting_body.nuts_code)
+        if data.contract.performance_nuts_code:
+            self._reference_data_cache['nuts_codes'].add(data.contract.performance_nuts_code)
+
+        for award_data in data.awards:
+            for contractor in award_data.contractors:
+                if contractor.nuts_code:
+                    self._reference_data_cache['nuts_codes'].add(contractor.nuts_code)
+
+        self._reference_data_cache['nuts_codes'].add('')  # Empty case
+
+        # Currencies
+        if data.contract.total_value_currency:
+            self._reference_data_cache['currencies'].add(data.contract.total_value_currency)
+
+        for award_data in data.awards:
+            if award_data.awarded_value_currency:
+                self._reference_data_cache['currencies'].add(award_data.awarded_value_currency)
+            if award_data.subcontracted_value_currency:
+                self._reference_data_cache['currencies'].add(award_data.subcontracted_value_currency)
+
+        self._reference_data_cache['currencies'].add('')  # Empty case
+
+        # CPV codes
+        if data.contract.main_cpv_code:
+            self._reference_data_cache['cpv_codes'].add(data.contract.main_cpv_code)
+        self._reference_data_cache['cpv_codes'].add('')  # Empty case
+
+    def _flush_reference_data(self, cur):
+        """Batch insert all collected reference data."""
+        # Languages
+        if self._reference_data_cache['languages']:
+            lang_data = [(lang, lang if lang else 'Unknown') for lang in self._reference_data_cache['languages']]
+            execute_values(
+                cur,
+                "INSERT INTO languages (code, name) VALUES %s ON CONFLICT (code) DO NOTHING",
+                lang_data
             )
 
         # Countries
-        countries = set()
-        if data['document']['source_country']:
-            countries.add(data['document']['source_country'])
-        if data['contracting_body']['country_code']:
-            countries.add(data['contracting_body']['country_code'])
-
-        for award_data in data['awards']:
-            for contractor in award_data['contractors']:
-                if contractor['country_code']:
-                    countries.add(contractor['country_code'])
-
-        # Add empty string for NULL/empty cases
-        countries.add('')
-
-        for country in countries:
-            cur.execute(
-                "INSERT INTO countries (code, name) VALUES (%s, %s) ON CONFLICT (code) DO NOTHING",
-                (country, country if country else 'Unknown')
+        if self._reference_data_cache['countries']:
+            country_data = [(country, country if country else 'Unknown') for country in self._reference_data_cache['countries']]
+            execute_values(
+                cur,
+                "INSERT INTO countries (code, name) VALUES %s ON CONFLICT (code) DO NOTHING",
+                country_data
             )
 
         # NUTS codes
-        nuts_codes = set()
-        if data['contracting_body']['nuts_code']:
-            nuts_codes.add(data['contracting_body']['nuts_code'])
-        if data['contract']['performance_nuts_code']:
-            nuts_codes.add(data['contract']['performance_nuts_code'])
-
-        for award_data in data['awards']:
-            for contractor in award_data['contractors']:
-                if contractor['nuts_code']:
-                    nuts_codes.add(contractor['nuts_code'])
-
-        # Add empty string for NULL/empty cases
-        nuts_codes.add('')
-
-        for nuts in nuts_codes:
-            cur.execute(
-                "INSERT INTO nuts_codes (code, name, level) VALUES (%s, %s, %s) ON CONFLICT (code) DO NOTHING",
-                (nuts, nuts if nuts else 'Unknown', len(nuts) if nuts else 0)
+        if self._reference_data_cache['nuts_codes']:
+            nuts_data = [(nuts, nuts if nuts else 'Unknown', len(nuts) if nuts else 0) for nuts in self._reference_data_cache['nuts_codes']]
+            execute_values(
+                cur,
+                "INSERT INTO nuts_codes (code, name, level) VALUES %s ON CONFLICT (code) DO NOTHING",
+                nuts_data
             )
 
         # Currencies
-        currencies = set()
-        if data['contract']['total_value_currency']:
-            currencies.add(data['contract']['total_value_currency'])
-
-        for award_data in data['awards']:
-            if award_data['awarded_value_currency']:
-                currencies.add(award_data['awarded_value_currency'])
-            if award_data['subcontracted_value_currency']:
-                currencies.add(award_data['subcontracted_value_currency'])
-
-        # Add empty string as a valid currency for NULL/empty cases
-        currencies.add('')
-
-        for currency in currencies:
-            cur.execute(
-                "INSERT INTO currencies (code, name) VALUES (%s, %s) ON CONFLICT (code) DO NOTHING",
-                (currency, currency if currency else 'Unknown')
+        if self._reference_data_cache['currencies']:
+            currency_data = [(currency, currency if currency else 'Unknown') for currency in self._reference_data_cache['currencies']]
+            execute_values(
+                cur,
+                "INSERT INTO currencies (code, name) VALUES %s ON CONFLICT (code) DO NOTHING",
+                currency_data
             )
 
         # CPV codes
-        cpv_codes = set()
-        if data['contract']['main_cpv_code']:
-            cpv_codes.add(data['contract']['main_cpv_code'])
-
-        # Add empty string for NULL/empty cases
-        cpv_codes.add('')
-
-        for cpv in cpv_codes:
-            cur.execute(
-                "INSERT INTO cpv_codes (code, description) VALUES (%s, %s) ON CONFLICT (code) DO NOTHING",
-                (cpv, cpv if cpv else 'Unknown')
+        if self._reference_data_cache['cpv_codes']:
+            cpv_data = [(cpv, cpv if cpv else 'Unknown') for cpv in self._reference_data_cache['cpv_codes']]
+            execute_values(
+                cur,
+                "INSERT INTO cpv_codes (code, description) VALUES %s ON CONFLICT (code) DO NOTHING",
+                cpv_data
             )
+
+        # Clear cache after flush
+        for key in self._reference_data_cache:
+            self._reference_data_cache[key].clear()
+
+    def save_award_data_batch(self, awards: List[TedAwardDataModel]):
+        """Save multiple award data records efficiently in batch."""
+        if not awards:
+            return
+
+        try:
+            with self.conn.cursor() as cur:
+                # Collect all reference data first
+                for award in awards:
+                    self._collect_reference_data(award)
+
+                # Batch insert reference data
+                self._flush_reference_data(cur)
+
+                # Process each award
+                for award in awards:
+                    # Save document
+                    self._insert_document(cur, award.document.dict())
+
+                    # Save contracting body
+                    cb_id = self._insert_contracting_body(cur, award.document.doc_id, award.contracting_body.dict())
+
+                    # Save contract
+                    contract_id = self._insert_contract(cur, award.document.doc_id, cb_id, award.contract.dict())
+
+                    # Save awards
+                    for award_data in award.awards:
+                        award_id = self._insert_award(cur, contract_id, award_data.dict())
+
+                        for contractor_data in award_data.contractors:
+                            contractor_id = self._insert_contractor(cur, contractor_data.dict())
+                            self._link_award_contractor(cur, award_id, contractor_id)
+
+            self.conn.commit()
+            logger.info(f"Saved batch of {len(awards)} award documents")
+
+        except Exception as e:
+            self.conn.rollback()
+            logger.error(f"Error saving award data batch: {e}")
+            raise
 
     def _ensure_schema_exists(self):
         """Ensure database schema exists by running schema.sql if needed."""

@@ -9,7 +9,8 @@ dependencies = [
     "lxml",
     "psycopg2-binary",
     "python-dotenv",
-    "click"
+    "click",
+    "pydantic"
 ]
 
 [project.scripts]

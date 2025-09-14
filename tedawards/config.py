@@ -14,8 +14,5 @@ class Config:
     TED_DATA_DIR = Path(os.getenv('TED_DATA_DIR', './data'))
     LOG_LEVEL = os.getenv('LOG_LEVEL', 'INFO')
 
-    @property
-    def database_url(self):
-        return f"postgresql://{self.DB_USER}:{self.DB_PASSWORD}@{self.DB_HOST}:{self.DB_PORT}/{self.DB_NAME}"
 
 config = Config()
