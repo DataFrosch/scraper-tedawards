@@ -122,21 +122,3 @@ class TedParserResultModel(BaseModel):
         return v
 
 
-# Helper functions for parsers
-def normalize_date_string(date_str: Optional[str]) -> Optional[date]:
-    """Helper to normalize date strings to date objects."""
-    if not date_str:
-        return None
-
-    if isinstance(date_str, date):
-        return date_str
-
-    if isinstance(date_str, str):
-        try:
-            # Try ISO format first
-            from datetime import datetime
-            return datetime.fromisoformat(date_str).date()
-        except ValueError:
-            pass
-
-    return None

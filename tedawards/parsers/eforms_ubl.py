@@ -2,7 +2,6 @@ import logging
 from pathlib import Path
 from typing import Dict, List, Optional
 from lxml import etree
-from datetime import datetime
 
 from .base import BaseParser
 from ..schema import (
