@@ -1,9 +1,8 @@
 from pathlib import Path
 from typing import List, Optional
 from .base import BaseParser
-from .ted_r209 import TedXmlParser
+from .ted_v2 import TedV2Parser
 from .eforms_ubl import EFormsUBLParser
-from .ted_r207 import TedR207Parser
 from .ted_meta_xml import TedMetaXmlParser
 
 class ParserFactory:
@@ -12,9 +11,8 @@ class ParserFactory:
     def __init__(self):
         self.parsers: List[BaseParser] = [
             TedMetaXmlParser(),  # Try META XML format first (for legacy 2007-2013 data)
-            TedXmlParser(),
-            EFormsUBLParser(),
-            TedR207Parser(),
+            TedV2Parser(),       # Unified TED 2.0 parser (R2.0.7, R2.0.8, R2.0.9)
+            EFormsUBLParser(),   # eForms UBL (2024+)
         ]
 
     def get_parser(self, xml_file: Path) -> Optional[BaseParser]:

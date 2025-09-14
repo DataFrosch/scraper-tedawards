@@ -31,20 +31,17 @@ The scraper supports multiple TED document formats across different time periods
 1. **TED Text Format (2007 and earlier)**
    - Format: ZIP files containing structured text files with field-based format
    - Content: Multiple ZIP files per language (meta and utf8 variants)
-   - Parser: `TedTextParser` - handles legacy text format with structured fields
+   - Parser: `TedMetaXmlParser` - handles legacy text format with structured fields
 
-2. **TED R2.0.7 (2008-2013)**
+2. **TED 2.0 (2008-2023)** - **Unified Parser**
+   - **R2.0.7 (2008-2010)**: XML with CONTRACT_AWARD forms, early structure
+   - **R2.0.8 (2011-2013)**: XML with CONTRACT_AWARD forms, enhanced structure
+   - **R2.0.9 (2014-2023)**: XML with F03_2014 forms, modern structure
    - Format: XML with TED_EXPORT namespace
-   - Schema: Uses CONTRACT_AWARD forms instead of F03_2014
-   - Parser: `TedR207Parser` - handles pre-2014 XML formats
+   - File naming: `{6-8digits}_{year}.xml` (e.g., 000248_2012.xml)
+   - Parser: `TedV2Parser` - unified parser handling all TED 2.0 variants with automatic format detection
 
-3. **TED R2.0.9 (2014-2023)**
-   - Format: XML with TED_EXPORT namespace and F03_2014 forms
-   - File naming: `{6-8digits}_{year}.xml` (e.g., 000001_2024.xml)
-   - Structure: `TED_EXPORT/CODED_DATA_SECTION` + `TED_EXPORT/FORM_SECTION/F03_2014`
-   - Parser: `TedXmlParser` - main parser for modern XML format
-
-4. **eForms UBL ContractAwardNotice (2024+)**
+3. **eForms UBL ContractAwardNotice (2024+)**
    - Format: UBL-based XML with ContractAwardNotice schema
    - Namespace: `urn:oasis:names:specification:ubl:schema:xsd:ContractAwardNotice-2`
    - Parser: `EFormsUBLParser` - handles new EU eForms standard
@@ -61,9 +58,10 @@ Comprehensive schema in `schema.sql` with tables:
 
 ## Format Detection & Parser Selection
 The `ParserFactory` automatically detects and selects the appropriate parser:
-- **Priority Order**: TedTextParser → TedXmlParser → EFormsUBLParser → TedR207Parser
+- **Priority Order**: TedMetaXmlParser → TedV2Parser → EFormsUBLParser
 - **Detection**: Each parser has a `can_parse()` method to identify compatible formats
 - **File Types**: Handles both `.xml` files and `.ZIP` archives containing text data
+- **TED 2.0 Auto-Detection**: The unified TedV2Parser automatically detects R2.0.7, R2.0.8, or R2.0.9 variants
 
 ### Archive Structure
 - **Modern (2014+)**: `.tar.gz` containing individual XML files

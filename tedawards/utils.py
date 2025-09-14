@@ -28,6 +28,29 @@ class XmlUtils:
         return result[0].get(attr, default) if result else default
 
     @staticmethod
+    def extract_text(elem) -> str:
+        """Extract text content from an XML element, handling nested elements."""
+        if elem is None:
+            return ''
+
+        # If the element has direct text
+        if elem.text:
+            # Handle cases where there might be nested elements
+            text_parts = [elem.text.strip() if elem.text else '']
+
+            # Add text from any nested elements
+            for child in elem:
+                if child.text:
+                    text_parts.append(child.text.strip())
+                if child.tail:
+                    text_parts.append(child.tail.strip())
+
+            # Join non-empty parts
+            return ' '.join(part for part in text_parts if part)
+
+        return ''
+
+    @staticmethod
     def get_multiline_text(elem, xpath: str) -> str:
         """Get concatenated text from multiple P elements."""
         results = elem.xpath(xpath)
@@ -83,19 +106,8 @@ class FileDetector:
     """Utility for detecting file formats."""
 
     @staticmethod
-    def is_ted_r209(file_path: Path) -> bool:
-        """Check if this is a TED R2.0.9 format file."""
-        try:
-            with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
-                content = f.read(1000)  # Read first 1KB
-            return 'TED_EXPORT' in content and 'ted/R2.0.9' in content
-        except Exception as e:
-            logger.debug(f"Error reading file {file_path.name} for R2.0.9 detection: {e}")
-            return False
-
-    @staticmethod
-    def is_ted_r207(file_path: Path) -> bool:
-        """Check if this file uses TED R2.0.7 format."""
+    def is_ted_v2(file_path: Path) -> bool:
+        """Check if this file uses any TED 2.0 format variant (R2.0.7, R2.0.8, R2.0.9)."""
         try:
             tree = etree.parse(file_path)
             root = tree.getroot()
@@ -104,16 +116,19 @@ class FileDetector:
             if root.tag != '{http://publications.europa.eu/TED_schema/Export}TED_EXPORT':
                 return False
 
-            # Check for CONTRACT_AWARD form (legacy format)
-            contract_award = root.find('.//{http://publications.europa.eu/TED_schema/Export}CONTRACT_AWARD')
-            if contract_award is not None:
-                # Check if it's document type 7 (Contract award)
-                doc_type = root.find('.//{http://publications.europa.eu/TED_schema/Export}TD_DOCUMENT_TYPE[@CODE="7"]')
-                return doc_type is not None
+            # Check if it's document type 7 (Contract award)
+            doc_type = root.find('.//{http://publications.europa.eu/TED_schema/Export}TD_DOCUMENT_TYPE[@CODE="7"]')
+            if doc_type is None:
+                return False
 
-            return False
+            # Must have either CONTRACT_AWARD (R2.0.7/R2.0.8) or F03_2014 (R2.0.9) form
+            has_contract_award = root.find('.//{http://publications.europa.eu/TED_schema/Export}CONTRACT_AWARD') is not None
+            has_f03_2014 = root.find('.//{http://publications.europa.eu/TED_schema/Export}F03_2014') is not None
+
+            return has_contract_award or has_f03_2014
+
         except Exception as e:
-            logger.debug(f"Error checking if {file_path.name} is TED R2.0.7 format: {e}")
+            logger.debug(f"Error checking if {file_path.name} is TED 2.0 format: {e}")
             return False
 
     @staticmethod
