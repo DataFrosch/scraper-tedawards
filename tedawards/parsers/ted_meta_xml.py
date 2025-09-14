@@ -20,7 +20,7 @@ from ..utils import FileDetector
 logger = logging.getLogger(__name__)
 
 
-class TedTextParser(BaseParser):
+class TedMetaXmlParser(BaseParser):
     """Parser for TED META XML format contained in ZIP archives."""
 
     def can_parse(self, file_path: Path) -> bool:
@@ -29,7 +29,7 @@ class TedTextParser(BaseParser):
 
     def get_format_name(self) -> str:
         """Return the format name for this parser."""
-        return "TED META XML Format"
+        return "TED META XML"
 
     def parse_xml_file(self, file_path: Path) -> Optional[TedParserResultModel]:
         """Parse a TED META XML format ZIP file and extract award data."""

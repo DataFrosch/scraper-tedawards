@@ -4,14 +4,14 @@ from .base import BaseParser
 from .ted_r209 import TedXmlParser
 from .eforms_ubl import EFormsUBLParser
 from .ted_r207 import TedR207Parser
-from .ted_text import TedTextParser
+from .ted_meta_xml import TedMetaXmlParser
 
 class ParserFactory:
     """Factory for creating appropriate parsers for different formats."""
 
     def __init__(self):
         self.parsers: List[BaseParser] = [
-            TedTextParser(),  # Try text format first (for 2007 data)
+            TedMetaXmlParser(),  # Try META XML format first (for legacy 2007-2013 data)
             TedXmlParser(),
             EFormsUBLParser(),
             TedR207Parser(),
