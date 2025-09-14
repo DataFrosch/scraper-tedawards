@@ -13,9 +13,9 @@ from datetime import datetime
 from .base import BaseParser
 from ..schema import (
     TedParserResultModel, TedAwardDataModel, DocumentModel,
-    ContractingBodyModel, ContractModel, AwardModel, ContractorModel,
-    normalize_date_string
+    ContractingBodyModel, ContractModel, AwardModel, ContractorModel
 )
+from ..utils import FileDetector, DateParsingUtils
 
 logger = logging.getLogger(__name__)
 
@@ -25,21 +25,7 @@ class TedTextParser(BaseParser):
 
     def can_parse(self, file_path: Path) -> bool:
         """Check if this file uses TED text format (ZIP containing text files)."""
-        try:
-            if not file_path.name.endswith('.ZIP'):
-                return False
-
-            # Check if it's a language-specific ZIP file pattern
-            # Format: XX_YYYYMMDD_NNN_UTF8_ORG.ZIP (e.g., EN_20070103_001_UTF8_ORG.ZIP)
-            pattern = r'^[A-Z]{2}_\d{8}_\d{3}_(UTF8|ISO)_ORG\.ZIP$'
-            if not re.match(pattern, file_path.name):
-                return False
-
-            return True
-
-        except Exception as e:
-            logger.debug(f"Error checking if {file_path.name} is TED text format: {e}")
-            return False
+        return FileDetector.is_ted_text_format(file_path)
 
     def get_format_name(self) -> str:
         """Return the format name for this parser."""
@@ -60,16 +46,7 @@ class TedTextParser(BaseParser):
             # Extract current file's language from filename (e.g., EN_20070103_001_UTF8_ORG.ZIP -> EN)
             current_lang = zip_path.name[:2]
 
-            # Get all ZIP files in the same directory (all language versions)
-            all_zip_files = list(zip_path.parent.glob("*_*.ZIP"))
-
-            # Build mapping of ND -> original language by scanning all files
-            nd_to_original_lang = {}
-            for zip_file in all_zip_files:
-                lang_records = self._scan_zip_for_original_languages(zip_file)
-                nd_to_original_lang.update(lang_records)
-
-            # Now parse current file and filter for records where current_lang matches original language
+            # Parse current file only
             with zipfile.ZipFile(zip_path, 'r') as zf:
                 names = zf.namelist()
                 if not names:
@@ -79,12 +56,12 @@ class TedTextParser(BaseParser):
                 text_content = zf.read(names[0]).decode('utf-8', errors='ignore')
                 records = self._parse_text_content(text_content)
 
-                # Filter for award records that should be processed by this language file
+                # Filter for award records where current language matches original language
                 award_records = []
                 for record in records:
                     if record.get('TD') == '7 - Contract award':
                         nd = record.get('ND', '')
-                        original_lang = nd_to_original_lang.get(nd, '')
+                        original_lang = record.get('OL', '')
 
                         # Only process this record if current language matches original language
                         if current_lang == original_lang:
@@ -103,29 +80,6 @@ class TedTextParser(BaseParser):
 
         return None
 
-    def _scan_zip_for_original_languages(self, zip_path: Path) -> Dict[str, str]:
-        """Scan a ZIP file to extract ND -> original language mapping."""
-        nd_to_lang = {}
-        try:
-            with zipfile.ZipFile(zip_path, 'r') as zf:
-                names = zf.namelist()
-                if not names:
-                    return nd_to_lang
-
-                text_content = zf.read(names[0]).decode('utf-8', errors='ignore')
-                records = self._parse_text_content(text_content)
-
-                for record in records:
-                    if record.get('TD') == '7 - Contract award':
-                        nd = record.get('ND', '')
-                        ol = record.get('OL', '')  # Original Language field
-                        if nd and ol:
-                            nd_to_lang[nd] = ol
-
-        except Exception as e:
-            logger.debug(f"Error scanning {zip_path} for original languages: {e}")
-
-        return nd_to_lang
 
     def _parse_text_zip(self, zip_path: Path) -> Optional[Dict]:
         """Parse the ZIP file containing TED text format data."""
@@ -418,7 +372,7 @@ class TedTextParser(BaseParser):
                         'is_sme': False
                     })
 
-        return contractors if contractors else [{'official_name': '', 'address': '', 'town': '', 'postal_code': '', 'country_code': '', 'nuts_code': '', 'phone': '', 'email': '', 'fax': '', 'url': '', 'is_sme': False}]
+        return contractors
 
     def _parse_contractors_as_models(self, tx_value: str) -> List[ContractorModel]:
         """Extract contractor information from TX field and return as ContractorModel objects."""

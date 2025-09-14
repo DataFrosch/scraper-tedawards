@@ -1,0 +1,226 @@
+"""
+Utility classes and functions shared across parsers.
+"""
+
+import logging
+import re
+from pathlib import Path
+from typing import Optional, Dict, Any
+from lxml import etree
+from datetime import datetime, date
+
+logger = logging.getLogger(__name__)
+
+
+class XmlUtils:
+    """Shared XML processing utilities for parsers."""
+
+    @staticmethod
+    def get_text(elem, xpath: str, default: str = '') -> str:
+        """Get text content from xpath."""
+        result = elem.xpath(xpath)
+        return result[0].text if result and result[0].text else default
+
+    @staticmethod
+    def get_attr(elem, xpath: str, attr: str, default: str = '') -> str:
+        """Get attribute value from xpath."""
+        result = elem.xpath(xpath)
+        return result[0].get(attr, default) if result else default
+
+    @staticmethod
+    def get_multiline_text(elem, xpath: str) -> str:
+        """Get concatenated text from multiple P elements."""
+        results = elem.xpath(xpath)
+        return ' '.join(p.text for p in results if p.text).strip()
+
+    @staticmethod
+    def get_int(elem, xpath: str, default: Optional[int] = None) -> Optional[int]:
+        """Get integer value from xpath."""
+        text = XmlUtils.get_text(elem, xpath)
+        return int(text) if text and text.isdigit() else default
+
+    @staticmethod
+    def get_decimal(elem, xpath: str, default: Optional[float] = None) -> Optional[float]:
+        """Get decimal value from xpath."""
+        text = XmlUtils.get_text(elem, xpath)
+        try:
+            return float(text) if text else default
+        except ValueError:
+            return default
+
+    @staticmethod
+    def get_text_with_namespace(elem, xpath: str, ns: Dict[str, str], default: Optional[str] = None) -> Optional[str]:
+        """Get text content from xpath with namespace support."""
+        try:
+            result = elem.xpath(xpath, namespaces=ns)
+            return result[0].text if result and result[0].text else default
+        except Exception:
+            return default
+
+    @staticmethod
+    def get_attr_with_namespace(elem, xpath: str, attr: str, ns: Dict[str, str], default: Optional[str] = None) -> Optional[str]:
+        """Get attribute value from xpath with namespace support."""
+        try:
+            result = elem.xpath(xpath, namespaces=ns)
+            return result[0].get(attr, default) if result else default
+        except Exception:
+            return default
+
+    @staticmethod
+    def get_decimal_from_text(text: str, default: Optional[float] = None) -> Optional[float]:
+        """Convert text to decimal."""
+        if not text:
+            return default
+        try:
+            return float(text)
+        except (ValueError, TypeError):
+            return default
+
+
+class FileDetector:
+    """Utility for detecting file formats."""
+
+    @staticmethod
+    def is_ted_r209(file_path: Path) -> bool:
+        """Check if this is a TED R2.0.9 format file."""
+        try:
+            with open(file_path, 'r', encoding='utf-8') as f:
+                content = f.read(1000)  # Read first 1KB
+            return 'TED_EXPORT' in content and 'ted/R2.0.9' in content
+        except Exception:
+            return False
+
+    @staticmethod
+    def is_ted_r207(file_path: Path) -> bool:
+        """Check if this file uses TED R2.0.7 format."""
+        try:
+            tree = etree.parse(file_path)
+            root = tree.getroot()
+
+            # Check for TED_EXPORT namespace
+            if root.tag != '{http://publications.europa.eu/TED_schema/Export}TED_EXPORT':
+                return False
+
+            # Check for CONTRACT_AWARD form (legacy format)
+            contract_award = root.find('.//{http://publications.europa.eu/TED_schema/Export}CONTRACT_AWARD')
+            if contract_award is not None:
+                # Check if it's document type 7 (Contract award)
+                doc_type = root.find('.//{http://publications.europa.eu/TED_schema/Export}TD_DOCUMENT_TYPE[@CODE="7"]')
+                return doc_type is not None
+
+            return False
+        except Exception as e:
+            logger.debug(f"Error checking if {file_path.name} is TED R2.0.7 format: {e}")
+            return False
+
+    @staticmethod
+    def is_eforms_ubl(file_path: Path) -> bool:
+        """Check if this is an eForms UBL ContractAwardNotice format file."""
+        try:
+            with open(file_path, 'r', encoding='utf-8') as f:
+                content = f.read(1000)  # Read first 1KB
+            return ('ContractAwardNotice' in content and
+                    'urn:oasis:names:specification:ubl:schema:xsd:ContractAwardNotice-2' in content)
+        except Exception:
+            return False
+
+    @staticmethod
+    def is_ted_text_format(file_path: Path) -> bool:
+        """Check if this file uses TED text format (ZIP containing text files)."""
+        try:
+            if not file_path.name.endswith('.ZIP'):
+                return False
+
+            # Check if it's a language-specific ZIP file pattern
+            # Format: XX_YYYYMMDD_NNN_UTF8_ORG.ZIP (e.g., EN_20070103_001_UTF8_ORG.ZIP)
+            pattern = r'^[A-Z]{2}_\d{8}_\d{3}_(UTF8|ISO)_ORG\.ZIP$'
+            return bool(re.match(pattern, file_path.name))
+        except Exception as e:
+            logger.debug(f"Error checking if {file_path.name} is TED text format: {e}")
+            return False
+
+    @staticmethod
+    def is_award_notice(file_path: Path) -> bool:
+        """Check if file contains award notice (document type 7)."""
+        try:
+            if file_path.suffix.lower() == '.zip':
+                return True  # Text format detection is handled separately
+
+            tree = etree.parse(file_path)
+            root = tree.getroot()
+
+            # Check for document type 7 in various formats
+            doc_type = root.xpath('//*[local-name()="TD_DOCUMENT_TYPE"]/@CODE')
+            return doc_type and doc_type[0] == '7'
+        except Exception:
+            return False
+
+
+class DateParsingUtils:
+    """Consolidated date parsing utilities."""
+
+    @staticmethod
+    def normalize_date_string(date_str: Optional[str]) -> Optional[date]:
+        """Helper to normalize date strings to date objects."""
+        if not date_str:
+            return None
+
+        if isinstance(date_str, date):
+            return date_str
+
+        if isinstance(date_str, str):
+            # Try various date formats
+            formats = [
+                '%Y-%m-%d',           # ISO format
+                '%Y%m%d',             # YYYYMMDD
+                '%d.%m.%Y',           # DD.MM.YYYY
+                '%d/%m/%Y',           # DD/MM/YYYY
+                '%m/%d/%Y',           # MM/DD/YYYY
+            ]
+
+            for fmt in formats:
+                try:
+                    return datetime.strptime(date_str.strip(), fmt).date()
+                except ValueError:
+                    continue
+
+            # Try ISO format parsing
+            try:
+                return datetime.fromisoformat(date_str).date()
+            except ValueError:
+                pass
+
+        return None
+
+    @staticmethod
+    def parse_award_date_from_text(text: str) -> Optional[str]:
+        """Extract award date from text content."""
+        if not text:
+            return None
+
+        # Look for "Date of award" section
+        date_match = re.search(r'Date of award[:\s]*(\d{1,2})\.(\d{1,2})\.(\d{4})', text, re.IGNORECASE)
+        if date_match:
+            day, month, year = date_match.groups()
+            try:
+                award_date = datetime(int(year), int(month), int(day)).date()
+                return award_date.isoformat()
+            except ValueError:
+                pass
+
+        return None
+
+    @staticmethod
+    def parse_date_components(day_elem, month_elem, year_elem) -> Optional[date]:
+        """Parse date from separate day/month/year elements."""
+        if not all(elem is not None for elem in [day_elem, month_elem, year_elem]):
+            return None
+
+        try:
+            return datetime(
+                int(year_elem.text),
+                int(month_elem.text),
+                int(day_elem.text)
+            ).date()
+        except (ValueError, TypeError):
+            return None

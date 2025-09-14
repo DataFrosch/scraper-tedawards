@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import Dict, List
 from .config import config
 from .schema import TedAwardDataModel
+from .reference_data import ReferenceDataManager
 
 logger = logging.getLogger(__name__)
 
@@ -13,13 +14,7 @@ class DatabaseManager:
 
     def __init__(self):
         self.conn = None
-        self._reference_data_cache = {
-            'languages': set(),
-            'countries': set(),
-            'nuts_codes': set(),
-            'currencies': set(),
-            'cpv_codes': set()
-        }
+        self.reference_manager = ReferenceDataManager()
 
     def connect(self):
         """Connect to PostgreSQL database."""
@@ -61,11 +56,9 @@ class DatabaseManager:
         """Save parsed award data to database."""
         try:
             with self.conn.cursor() as cur:
-                # Collect reference data
-                self._collect_reference_data(data)
-
-                # Flush reference data in smaller batches for single records
-                self._flush_reference_data(cur)
+                # Collect and flush reference data
+                self.reference_manager.collect_from_award_data(data)
+                self.reference_manager.flush_to_database(cur)
 
                 # Save document
                 self._insert_document(cur, data.document.dict())
@@ -194,108 +187,6 @@ class DatabaseManager:
         """
         cur.execute(sql, (award_id, contractor_id))
 
-    def _collect_reference_data(self, data: TedAwardDataModel):
-        """Collect reference data from award data into cache."""
-        # Languages
-        if data.document.form_language:
-            self._reference_data_cache['languages'].add(data.document.form_language)
-        if data.document.original_language:
-            self._reference_data_cache['languages'].add(data.document.original_language)
-        self._reference_data_cache['languages'].add('')  # Empty case
-
-        # Countries
-        if data.document.source_country:
-            self._reference_data_cache['countries'].add(data.document.source_country)
-        if data.contracting_body.country_code:
-            self._reference_data_cache['countries'].add(data.contracting_body.country_code)
-
-        for award_data in data.awards:
-            for contractor in award_data.contractors:
-                if contractor.country_code:
-                    self._reference_data_cache['countries'].add(contractor.country_code)
-
-        self._reference_data_cache['countries'].add('')  # Empty case
-
-        # NUTS codes
-        if data.contracting_body.nuts_code:
-            self._reference_data_cache['nuts_codes'].add(data.contracting_body.nuts_code)
-        if data.contract.performance_nuts_code:
-            self._reference_data_cache['nuts_codes'].add(data.contract.performance_nuts_code)
-
-        for award_data in data.awards:
-            for contractor in award_data.contractors:
-                if contractor.nuts_code:
-                    self._reference_data_cache['nuts_codes'].add(contractor.nuts_code)
-
-        self._reference_data_cache['nuts_codes'].add('')  # Empty case
-
-        # Currencies
-        if data.contract.total_value_currency:
-            self._reference_data_cache['currencies'].add(data.contract.total_value_currency)
-
-        for award_data in data.awards:
-            if award_data.awarded_value_currency:
-                self._reference_data_cache['currencies'].add(award_data.awarded_value_currency)
-            if award_data.subcontracted_value_currency:
-                self._reference_data_cache['currencies'].add(award_data.subcontracted_value_currency)
-
-        self._reference_data_cache['currencies'].add('')  # Empty case
-
-        # CPV codes
-        if data.contract.main_cpv_code:
-            self._reference_data_cache['cpv_codes'].add(data.contract.main_cpv_code)
-        self._reference_data_cache['cpv_codes'].add('')  # Empty case
-
-    def _flush_reference_data(self, cur):
-        """Batch insert all collected reference data."""
-        # Languages
-        if self._reference_data_cache['languages']:
-            lang_data = [(lang, lang if lang else 'Unknown') for lang in self._reference_data_cache['languages']]
-            execute_values(
-                cur,
-                "INSERT INTO languages (code, name) VALUES %s ON CONFLICT (code) DO NOTHING",
-                lang_data
-            )
-
-        # Countries
-        if self._reference_data_cache['countries']:
-            country_data = [(country, country if country else 'Unknown') for country in self._reference_data_cache['countries']]
-            execute_values(
-                cur,
-                "INSERT INTO countries (code, name) VALUES %s ON CONFLICT (code) DO NOTHING",
-                country_data
-            )
-
-        # NUTS codes
-        if self._reference_data_cache['nuts_codes']:
-            nuts_data = [(nuts, nuts if nuts else 'Unknown', len(nuts) if nuts else 0) for nuts in self._reference_data_cache['nuts_codes']]
-            execute_values(
-                cur,
-                "INSERT INTO nuts_codes (code, name, level) VALUES %s ON CONFLICT (code) DO NOTHING",
-                nuts_data
-            )
-
-        # Currencies
-        if self._reference_data_cache['currencies']:
-            currency_data = [(currency, currency if currency else 'Unknown') for currency in self._reference_data_cache['currencies']]
-            execute_values(
-                cur,
-                "INSERT INTO currencies (code, name) VALUES %s ON CONFLICT (code) DO NOTHING",
-                currency_data
-            )
-
-        # CPV codes
-        if self._reference_data_cache['cpv_codes']:
-            cpv_data = [(cpv, cpv if cpv else 'Unknown') for cpv in self._reference_data_cache['cpv_codes']]
-            execute_values(
-                cur,
-                "INSERT INTO cpv_codes (code, description) VALUES %s ON CONFLICT (code) DO NOTHING",
-                cpv_data
-            )
-
-        # Clear cache after flush
-        for key in self._reference_data_cache:
-            self._reference_data_cache[key].clear()
 
     def save_award_data_batch(self, awards: List[TedAwardDataModel]):
         """Save multiple award data records efficiently in batch."""
@@ -304,12 +195,9 @@ class DatabaseManager:
 
         try:
             with self.conn.cursor() as cur:
-                # Collect all reference data first
-                for award in awards:
-                    self._collect_reference_data(award)
-
-                # Batch insert reference data
-                self._flush_reference_data(cur)
+                # Collect and flush reference data
+                self.reference_manager.collect_from_batch(awards)
+                self.reference_manager.flush_to_database(cur)
 
                 # Process each award
                 for award in awards:

@@ -7,9 +7,9 @@ from datetime import datetime
 from .base import BaseParser
 from ..schema import (
     TedParserResultModel, TedAwardDataModel, DocumentModel,
-    ContractingBodyModel, ContractModel, AwardModel, ContractorModel,
-    normalize_date_string
+    ContractingBodyModel, ContractModel, AwardModel, ContractorModel
 )
+from ..utils import XmlUtils, FileDetector, DateParsingUtils
 
 logger = logging.getLogger(__name__)
 
@@ -18,13 +18,7 @@ class EFormsUBLParser(BaseParser):
 
     def can_parse(self, xml_file: Path) -> bool:
         """Check if this is an eForms UBL ContractAwardNotice format file."""
-        try:
-            with open(xml_file, 'r', encoding='utf-8') as f:
-                content = f.read(1000)  # Read first 1KB
-            return ('ContractAwardNotice' in content and
-                    'urn:oasis:names:specification:ubl:schema:xsd:ContractAwardNotice-2' in content)
-        except Exception:
-            return False
+        return FileDetector.is_eforms_ubl(xml_file)
 
     def get_format_name(self) -> str:
         """Return format name."""
@@ -103,14 +97,14 @@ class EFormsUBLParser(BaseParser):
 
             # Extract publication date from various possible locations
             pub_date_str = (
-                self._get_text(root, './/efac:Publication/efbc:PublicationDate', ns) or
-                self._get_text(root, './/cbc:IssueDate', ns) or
-                self._get_text(root, './/efac:SettledContract/cbc:IssueDate', ns) or
-                self._get_text(root, './/cac:ContractAwardNotice/cbc:IssueDate', ns)
+                XmlUtils.get_text_with_namespace(root, './/efac:Publication/efbc:PublicationDate', ns) or
+                XmlUtils.get_text_with_namespace(root, './/cbc:IssueDate', ns) or
+                XmlUtils.get_text_with_namespace(root, './/efac:SettledContract/cbc:IssueDate', ns) or
+                XmlUtils.get_text_with_namespace(root, './/cac:ContractAwardNotice/cbc:IssueDate', ns)
             )
 
             # Parse the publication date
-            pub_date = normalize_date_string(pub_date_str) if pub_date_str else None
+            pub_date = DateParsingUtils.normalize_date_string(pub_date_str) if pub_date_str else None
 
             # If no publication date found, this is an error - don't fallback to current date
             if pub_date is None:
@@ -153,7 +147,7 @@ class EFormsUBLParser(BaseParser):
         """Extract contracting body information from eForms UBL."""
         try:
             # Find the contracting party organization ID from the main document structure
-            contracting_party_id = self._get_text(root, './/cac:ContractingParty/cac:Party/cac:PartyIdentification/cbc:ID', ns)
+            contracting_party_id = XmlUtils.get_text_with_namespace(root, './/cac:ContractingParty/cac:Party/cac:PartyIdentification/cbc:ID', ns)
 
             if not contracting_party_id:
                 # Fallback to first organization if no contracting party specified
@@ -169,7 +163,7 @@ class EFormsUBLParser(BaseParser):
                 for org in orgs:
                     company = org.find('.//efac:Company', ns)
                     if company is not None:
-                        org_id = self._get_text(company, './/cac:PartyIdentification/cbc:ID', ns)
+                        org_id = XmlUtils.get_text_with_namespace(company, './/cac:PartyIdentification/cbc:ID', ns)
                         if org_id == contracting_party_id:
                             contracting_body = company
                             break
@@ -178,17 +172,17 @@ class EFormsUBLParser(BaseParser):
                 return None
 
             return {
-                'official_name': self._get_text(contracting_body, './/cac:PartyName/cbc:Name', ns) or '',
-                'address': self._get_text(contracting_body, './/cac:PostalAddress/cbc:StreetName', ns),
-                'town': self._get_text(contracting_body, './/cac:PostalAddress/cbc:CityName', ns),
-                'postal_code': self._get_text(contracting_body, './/cac:PostalAddress/cbc:PostalZone', ns),
-                'country_code': self._get_text(contracting_body, './/cac:PostalAddress/cac:Country/cbc:IdentificationCode', ns),
+                'official_name': XmlUtils.get_text_with_namespace(contracting_body, './/cac:PartyName/cbc:Name', ns) or '',
+                'address': XmlUtils.get_text_with_namespace(contracting_body, './/cac:PostalAddress/cbc:StreetName', ns),
+                'town': XmlUtils.get_text_with_namespace(contracting_body, './/cac:PostalAddress/cbc:CityName', ns),
+                'postal_code': XmlUtils.get_text_with_namespace(contracting_body, './/cac:PostalAddress/cbc:PostalZone', ns),
+                'country_code': XmlUtils.get_text_with_namespace(contracting_body, './/cac:PostalAddress/cac:Country/cbc:IdentificationCode', ns),
                 'nuts_code': '',  # TODO: Extract NUTS if available
                 'contact_point': '',
-                'phone': self._get_text(contracting_body, './/cac:Contact/cbc:Telephone', ns),
-                'email': self._get_text(contracting_body, './/cac:Contact/cbc:ElectronicMail', ns),
+                'phone': XmlUtils.get_text_with_namespace(contracting_body, './/cac:Contact/cbc:Telephone', ns),
+                'email': XmlUtils.get_text_with_namespace(contracting_body, './/cac:Contact/cbc:ElectronicMail', ns),
                 'fax': '',
-                'url_general': self._get_text(contracting_body, './/cbc:WebsiteURI', ns),
+                'url_general': XmlUtils.get_text_with_namespace(contracting_body, './/cbc:WebsiteURI', ns),
                 'url_buyer': '',
                 'authority_type_code': '',
                 'main_activity_code': ''
@@ -201,30 +195,30 @@ class EFormsUBLParser(BaseParser):
         """Extract contract information from eForms UBL."""
         try:
             # Get contract title from settled contract
-            title = self._get_text(root, './/efac:SettledContract/cbc:Title', ns) or ''
+            title = XmlUtils.get_text_with_namespace(root, './/efac:SettledContract/cbc:Title', ns) or ''
 
             # Get contract reference
-            ref_number = self._get_text(root, './/efac:SettledContract/efac:ContractReference/cbc:ID', ns)
+            ref_number = XmlUtils.get_text_with_namespace(root, './/efac:SettledContract/efac:ContractReference/cbc:ID', ns)
 
             # Get total value
             total_amount = root.xpath('.//efac:NoticeResult/cbc:TotalAmount', namespaces=ns)
             total_value = None
             total_currency = ''
             if total_amount:
-                total_value = self._get_decimal_from_text(total_amount[0].text)
+                total_value = XmlUtils.get_decimal_from_text(total_amount[0].text)
                 total_currency = total_amount[0].get('currencyID', '')
 
             # Extract main CPV code
-            main_cpv = self._get_text(root, './/cac:ProcurementProject/cac:MainCommodityClassification/cbc:ItemClassificationCode', ns)
+            main_cpv = XmlUtils.get_text_with_namespace(root, './/cac:ProcurementProject/cac:MainCommodityClassification/cbc:ItemClassificationCode', ns)
 
             # Extract contract nature
-            contract_nature_code = self._get_text(root, './/cac:ProcurementProject/cbc:ProcurementTypeCode', ns)
+            contract_nature_code = XmlUtils.get_text_with_namespace(root, './/cac:ProcurementProject/cbc:ProcurementTypeCode', ns)
 
             # Extract procedure type
-            procedure_type_code = self._get_text(root, './/cac:TenderingProcess/cbc:ProcedureCode', ns)
+            procedure_type_code = XmlUtils.get_text_with_namespace(root, './/cac:TenderingProcess/cbc:ProcedureCode', ns)
 
             # Extract performance NUTS code
-            nuts_code = self._get_text(root, './/cac:ProcurementProject/cac:RealizedLocation/cac:Address/cbc:CountrySubentityCode', ns)
+            nuts_code = XmlUtils.get_text_with_namespace(root, './/cac:ProcurementProject/cac:RealizedLocation/cac:Address/cbc:CountrySubentityCode', ns)
 
             return {
                 'title': title or '',
@@ -252,24 +246,24 @@ class EFormsUBLParser(BaseParser):
 
             for lot_result in lot_results:
                 # Get conclusion date
-                conclusion_date = self._get_text(root, './/efac:SettledContract/cbc:IssueDate', ns)
-                conclusion_date_parsed = normalize_date_string(conclusion_date) if conclusion_date else None
+                conclusion_date = XmlUtils.get_text_with_namespace(root, './/efac:SettledContract/cbc:IssueDate', ns)
+                conclusion_date_parsed = DateParsingUtils.normalize_date_string(conclusion_date) if conclusion_date else None
 
                 # Get tender information
                 tender_amount = root.xpath('.//efac:LotTender/cac:LegalMonetaryTotal/cbc:PayableAmount', namespaces=ns)
                 awarded_value = None
                 awarded_currency = ''
                 if tender_amount:
-                    awarded_value = self._get_decimal_from_text(tender_amount[0].text)
+                    awarded_value = XmlUtils.get_decimal_from_text(tender_amount[0].text)
                     awarded_currency = tender_amount[0].get('currencyID', '')
 
                 # Extract contractors
                 contractors = self._extract_contractors(root, ns)
 
                 award = {
-                    'award_title': self._get_text(root, './/efac:SettledContract/cbc:Title', ns),
+                    'award_title': XmlUtils.get_text_with_namespace(root, './/efac:SettledContract/cbc:Title', ns),
                     'conclusion_date': conclusion_date_parsed,
-                    'contract_number': self._get_text(root, './/efac:SettledContract/efac:ContractReference/cbc:ID', ns),
+                    'contract_number': XmlUtils.get_text_with_namespace(root, './/efac:SettledContract/efac:ContractReference/cbc:ID', ns),
                     'tenders_received': None,  # Extract from XML if available
                     'tenders_received_sme': None,
                     'tenders_received_other_eu': None,
@@ -308,23 +302,23 @@ class EFormsUBLParser(BaseParser):
             for org in orgs:
                 company = org.find('.//efac:Company', ns)
                 if company is not None:
-                    org_id = self._get_text(company, './/cac:PartyIdentification/cbc:ID', ns)
+                    org_id = XmlUtils.get_text_with_namespace(company, './/cac:PartyIdentification/cbc:ID', ns)
 
                     # Only include organizations that are winning tenderers
                     if org_id in winning_org_ids:
-                        official_name = self._get_text(company, './/cac:PartyName/cbc:Name', ns)
+                        official_name = XmlUtils.get_text_with_namespace(company, './/cac:PartyName/cbc:Name', ns)
                         if official_name:  # Only add if we have a name
                             contractor = {
                                 'official_name': official_name,
-                                'address': self._get_text(company, './/cac:PostalAddress/cbc:StreetName', ns),
-                                'town': self._get_text(company, './/cac:PostalAddress/cbc:CityName', ns),
-                                'postal_code': self._get_text(company, './/cac:PostalAddress/cbc:PostalZone', ns),
-                                'country_code': self._get_text(company, './/cac:PostalAddress/cac:Country/cbc:IdentificationCode', ns),
+                                'address': XmlUtils.get_text_with_namespace(company, './/cac:PostalAddress/cbc:StreetName', ns),
+                                'town': XmlUtils.get_text_with_namespace(company, './/cac:PostalAddress/cbc:CityName', ns),
+                                'postal_code': XmlUtils.get_text_with_namespace(company, './/cac:PostalAddress/cbc:PostalZone', ns),
+                                'country_code': XmlUtils.get_text_with_namespace(company, './/cac:PostalAddress/cac:Country/cbc:IdentificationCode', ns),
                                 'nuts_code': None,
-                                'phone': self._get_text(company, './/cac:Contact/cbc:Telephone', ns),
-                                'email': self._get_text(company, './/cac:Contact/cbc:ElectronicMail', ns),
+                                'phone': XmlUtils.get_text_with_namespace(company, './/cac:Contact/cbc:Telephone', ns),
+                                'email': XmlUtils.get_text_with_namespace(company, './/cac:Contact/cbc:ElectronicMail', ns),
                                 'fax': None,
-                                'url': self._get_text(company, './/cbc:WebsiteURI', ns),
+                                'url': XmlUtils.get_text_with_namespace(company, './/cbc:WebsiteURI', ns),
                                 'is_sme': False
                             }
                             contractors.append(contractor)
@@ -336,28 +330,4 @@ class EFormsUBLParser(BaseParser):
             return []
 
 
-    def _get_text(self, elem, xpath, ns=None, default=None):
-        """Get text content from xpath."""
-        try:
-            result = elem.xpath(xpath, namespaces=ns) if ns else elem.xpath(xpath)
-            return result[0].text if result and result[0].text else default
-        except Exception:
-            return default
-
-    def _get_attr(self, elem, xpath, attr, ns=None, default=None):
-        """Get attribute value from xpath."""
-        try:
-            result = elem.xpath(xpath, namespaces=ns) if ns else elem.xpath(xpath)
-            return result[0].get(attr, default) if result else default
-        except Exception:
-            return default
-
-    def _get_decimal_from_text(self, text, default=None):
-        """Convert text to decimal."""
-        if not text:
-            return default
-        try:
-            return float(text)
-        except (ValueError, TypeError):
-            return default
 

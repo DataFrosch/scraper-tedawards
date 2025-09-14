@@ -7,9 +7,9 @@ from datetime import datetime
 from .base import BaseParser
 from ..schema import (
     TedParserResultModel, TedAwardDataModel, DocumentModel,
-    ContractingBodyModel, ContractModel, AwardModel, ContractorModel,
-    normalize_date_string
+    ContractingBodyModel, ContractModel, AwardModel, ContractorModel
 )
+from ..utils import XmlUtils, FileDetector, DateParsingUtils
 
 logger = logging.getLogger(__name__)
 
@@ -18,12 +18,7 @@ class TedXmlParser(BaseParser):
 
     def can_parse(self, xml_file: Path) -> bool:
         """Check if this is a TED R2.0.9 format file."""
-        try:
-            with open(xml_file, 'r', encoding='utf-8') as f:
-                content = f.read(1000)  # Read first 1KB
-            return 'TED_EXPORT' in content and 'ted/R2.0.9' in content
-        except Exception:
-            return False
+        return FileDetector.is_ted_r209(xml_file)
 
     def get_format_name(self) -> str:
         """Return format name."""
@@ -81,49 +76,49 @@ class TedXmlParser(BaseParser):
             doc_id=root.get('DOC_ID') or '',
             edition=root.get('EDITION'),
             version=root.get('VERSION'),
-            reception_id=self._get_text(root, '//*[local-name()="RECEPTION_ID"]'),
-            deletion_date=normalize_date_string(self._get_text(root, '//*[local-name()="DELETION_DATE"]')),
-            form_language=self._get_text(root, '//*[local-name()="FORM_LG_LIST"]', '').strip(),
-            official_journal_ref=self._get_text(root, '//*[local-name()="NO_DOC_OJS"]'),
-            publication_date=normalize_date_string(self._get_text(root, '//*[local-name()="DATE_PUB"]')),
-            dispatch_date=normalize_date_string(self._get_text(root, '//*[local-name()="DS_DATE_DISPATCH"]')),
-            original_language=self._get_text(root, '//*[local-name()="LG_ORIG"]'),
-            source_country=self._get_attr(root, '//*[local-name()="ISO_COUNTRY"]', 'VALUE')
+            reception_id=XmlUtils.get_text(root, '//*[local-name()="RECEPTION_ID"]'),
+            deletion_date=DateParsingUtils.normalize_date_string(XmlUtils.get_text(root, '//*[local-name()="DELETION_DATE"]')),
+            form_language=XmlUtils.get_text(root, '//*[local-name()="FORM_LG_LIST"]', '').strip(),
+            official_journal_ref=XmlUtils.get_text(root, '//*[local-name()="NO_DOC_OJS"]'),
+            publication_date=DateParsingUtils.normalize_date_string(XmlUtils.get_text(root, '//*[local-name()="DATE_PUB"]')),
+            dispatch_date=DateParsingUtils.normalize_date_string(XmlUtils.get_text(root, '//*[local-name()="DS_DATE_DISPATCH"]')),
+            original_language=XmlUtils.get_text(root, '//*[local-name()="LG_ORIG"]'),
+            source_country=XmlUtils.get_attr(root, '//*[local-name()="ISO_COUNTRY"]', 'VALUE')
         )
 
     def _extract_contracting_body(self, root) -> ContractingBodyModel:
         """Extract contracting body information."""
         cb_xpath = '//*[local-name()="ADDRESS_CONTRACTING_BODY"]'
         return ContractingBodyModel(
-            official_name=self._get_text(root, f'{cb_xpath}//*[local-name()="OFFICIALNAME"]') or '',
-            address=self._get_text(root, f'{cb_xpath}//*[local-name()="ADDRESS"]'),
-            town=self._get_text(root, f'{cb_xpath}//*[local-name()="TOWN"]'),
-            postal_code=self._get_text(root, f'{cb_xpath}//*[local-name()="POSTAL_CODE"]'),
-            country_code=self._get_attr(root, f'{cb_xpath}//*[local-name()="COUNTRY"]', 'VALUE'),
-            nuts_code=self._get_attr(root, f'{cb_xpath}//*[local-name()="NUTS"]', 'CODE'),
-            contact_point=self._get_text(root, f'{cb_xpath}//*[local-name()="CONTACT_POINT"]'),
-            phone=self._get_text(root, f'{cb_xpath}//*[local-name()="PHONE"]'),
-            email=self._get_text(root, f'{cb_xpath}//*[local-name()="E_MAIL"]'),
-            fax=self._get_text(root, f'{cb_xpath}//*[local-name()="FAX"]'),
-            url_general=self._get_text(root, f'{cb_xpath}//*[local-name()="URL_GENERAL"]'),
-            url_buyer=self._get_text(root, f'{cb_xpath}//*[local-name()="URL_BUYER"]'),
-            authority_type_code=self._get_attr(root, '//*[local-name()="AA_AUTHORITY_TYPE"]', 'CODE'),
-            main_activity_code=self._get_attr(root, '//*[local-name()="MA_MAIN_ACTIVITIES"]', 'CODE')
+            official_name=XmlUtils.get_text(root, f'{cb_xpath}//*[local-name()="OFFICIALNAME"]') or '',
+            address=XmlUtils.get_text(root, f'{cb_xpath}//*[local-name()="ADDRESS"]'),
+            town=XmlUtils.get_text(root, f'{cb_xpath}//*[local-name()="TOWN"]'),
+            postal_code=XmlUtils.get_text(root, f'{cb_xpath}//*[local-name()="POSTAL_CODE"]'),
+            country_code=XmlUtils.get_attr(root, f'{cb_xpath}//*[local-name()="COUNTRY"]', 'VALUE'),
+            nuts_code=XmlUtils.get_attr(root, f'{cb_xpath}//*[local-name()="NUTS"]', 'CODE'),
+            contact_point=XmlUtils.get_text(root, f'{cb_xpath}//*[local-name()="CONTACT_POINT"]'),
+            phone=XmlUtils.get_text(root, f'{cb_xpath}//*[local-name()="PHONE"]'),
+            email=XmlUtils.get_text(root, f'{cb_xpath}//*[local-name()="E_MAIL"]'),
+            fax=XmlUtils.get_text(root, f'{cb_xpath}//*[local-name()="FAX"]'),
+            url_general=XmlUtils.get_text(root, f'{cb_xpath}//*[local-name()="URL_GENERAL"]'),
+            url_buyer=XmlUtils.get_text(root, f'{cb_xpath}//*[local-name()="URL_BUYER"]'),
+            authority_type_code=XmlUtils.get_attr(root, '//*[local-name()="AA_AUTHORITY_TYPE"]', 'CODE'),
+            main_activity_code=XmlUtils.get_attr(root, '//*[local-name()="MA_MAIN_ACTIVITIES"]', 'CODE')
         )
 
     def _extract_contract_info(self, root) -> ContractModel:
         """Extract contract information."""
         return ContractModel(
-            title=self._get_text(root, '//*[local-name()="OBJECT_CONTRACT"]//*[local-name()="TITLE"]//*[local-name()="P"]') or '',
-            reference_number=self._get_text(root, '//*[local-name()="REFERENCE_NUMBER"]'),
-            short_description=self._get_multiline_text(root, '//*[local-name()="OBJECT_CONTRACT"]//*[local-name()="SHORT_DESCR"]//*[local-name()="P"]'),
-            main_cpv_code=self._get_attr(root, '//*[local-name()="CPV_MAIN"]//*[local-name()="CPV_CODE"]', 'CODE'),
-            contract_nature_code=self._get_attr(root, '//*[local-name()="NC_CONTRACT_NATURE"]', 'CODE'),
-            total_value=self._get_decimal(root, '//*[local-name()="VAL_TOTAL"]'),
-            total_value_currency=self._get_attr(root, '//*[local-name()="VAL_TOTAL"]', 'CURRENCY'),
-            procedure_type_code=self._get_attr(root, '//*[local-name()="PR_PROC"]', 'CODE'),
-            award_criteria_code=self._get_attr(root, '//*[local-name()="AC_AWARD_CRIT"]', 'CODE'),
-            performance_nuts_code=self._get_attr(root, '//*[local-name()="PERFORMANCE_NUTS"]', 'CODE')
+            title=XmlUtils.get_text(root, '//*[local-name()="OBJECT_CONTRACT"]//*[local-name()="TITLE"]//*[local-name()="P"]') or '',
+            reference_number=XmlUtils.get_text(root, '//*[local-name()="REFERENCE_NUMBER"]'),
+            short_description=XmlUtils.get_multiline_text(root, '//*[local-name()="OBJECT_CONTRACT"]//*[local-name()="SHORT_DESCR"]//*[local-name()="P"]'),
+            main_cpv_code=XmlUtils.get_attr(root, '//*[local-name()="CPV_MAIN"]//*[local-name()="CPV_CODE"]', 'CODE'),
+            contract_nature_code=XmlUtils.get_attr(root, '//*[local-name()="NC_CONTRACT_NATURE"]', 'CODE'),
+            total_value=XmlUtils.get_decimal(root, '//*[local-name()="VAL_TOTAL"]'),
+            total_value_currency=XmlUtils.get_attr(root, '//*[local-name()="VAL_TOTAL"]', 'CURRENCY'),
+            procedure_type_code=XmlUtils.get_attr(root, '//*[local-name()="PR_PROC"]', 'CODE'),
+            award_criteria_code=XmlUtils.get_attr(root, '//*[local-name()="AC_AWARD_CRIT"]', 'CODE'),
+            performance_nuts_code=XmlUtils.get_attr(root, '//*[local-name()="PERFORMANCE_NUTS"]', 'CODE')
         )
 
     def _extract_award_info(self, root) -> List[AwardModel]:
@@ -134,25 +129,25 @@ class TedXmlParser(BaseParser):
             contractors = self._extract_contractors(award_elem)
 
             award_data = AwardModel(
-                award_title=self._get_text(award_elem, './/*[local-name()="TITLE"]//*[local-name()="P"]'),
-                conclusion_date=normalize_date_string(self._get_text(award_elem, './/*[local-name()="DATE_CONCLUSION_CONTRACT"]')),
-                contract_number=self._get_text(award_elem, './/*[local-name()="CONTRACT_NUMBER"]'),
+                award_title=XmlUtils.get_text(award_elem, './/*[local-name()="TITLE"]//*[local-name()="P"]'),
+                conclusion_date=DateParsingUtils.normalize_date_string(XmlUtils.get_text(award_elem, './/*[local-name()="DATE_CONCLUSION_CONTRACT"]')),
+                contract_number=XmlUtils.get_text(award_elem, './/*[local-name()="CONTRACT_NUMBER"]'),
 
                 # Tender statistics
-                tenders_received=self._get_int(award_elem, './/*[local-name()="NB_TENDERS_RECEIVED"]'),
-                tenders_received_sme=self._get_int(award_elem, './/*[local-name()="NB_TENDERS_RECEIVED_SME"]'),
-                tenders_received_other_eu=self._get_int(award_elem, './/*[local-name()="NB_TENDERS_RECEIVED_OTHER_EU"]'),
-                tenders_received_non_eu=self._get_int(award_elem, './/*[local-name()="NB_TENDERS_RECEIVED_NON_EU"]'),
-                tenders_received_electronic=self._get_int(award_elem, './/*[local-name()="NB_TENDERS_RECEIVED_EMEANS"]'),
+                tenders_received=XmlUtils.get_int(award_elem, './/*[local-name()="NB_TENDERS_RECEIVED"]'),
+                tenders_received_sme=XmlUtils.get_int(award_elem, './/*[local-name()="NB_TENDERS_RECEIVED_SME"]'),
+                tenders_received_other_eu=XmlUtils.get_int(award_elem, './/*[local-name()="NB_TENDERS_RECEIVED_OTHER_EU"]'),
+                tenders_received_non_eu=XmlUtils.get_int(award_elem, './/*[local-name()="NB_TENDERS_RECEIVED_NON_EU"]'),
+                tenders_received_electronic=XmlUtils.get_int(award_elem, './/*[local-name()="NB_TENDERS_RECEIVED_EMEANS"]'),
 
                 # Award value
-                awarded_value=self._get_decimal(award_elem, './/*[local-name()="VAL_TOTAL"]'),
-                awarded_value_currency=self._get_attr(award_elem, './/*[local-name()="VAL_TOTAL"]', 'CURRENCY'),
+                awarded_value=XmlUtils.get_decimal(award_elem, './/*[local-name()="VAL_TOTAL"]'),
+                awarded_value_currency=XmlUtils.get_attr(award_elem, './/*[local-name()="VAL_TOTAL"]', 'CURRENCY'),
 
                 # Subcontracting
-                subcontracted_value=self._get_decimal(award_elem, './/*[local-name()="VAL_SUBCONTRACTING"]'),
-                subcontracted_value_currency=self._get_attr(award_elem, './/*[local-name()="VAL_SUBCONTRACTING"]', 'CURRENCY'),
-                subcontracting_description=self._get_text(award_elem, './/*[local-name()="INFO_ADD_SUBCONTRACTING"]//*[local-name()="P"]'),
+                subcontracted_value=XmlUtils.get_decimal(award_elem, './/*[local-name()="VAL_SUBCONTRACTING"]'),
+                subcontracted_value_currency=XmlUtils.get_attr(award_elem, './/*[local-name()="VAL_SUBCONTRACTING"]', 'CURRENCY'),
+                subcontracting_description=XmlUtils.get_text(award_elem, './/*[local-name()="INFO_ADD_SUBCONTRACTING"]//*[local-name()="P"]'),
 
                 # Contractors
                 contractors=contractors
@@ -169,20 +164,20 @@ class TedXmlParser(BaseParser):
             addr_elems = contractor_elem.xpath('.//*[local-name()="ADDRESS_CONTRACTOR"]')
             if addr_elems:
                 addr_elem = addr_elems[0]
-                official_name = self._get_text(addr_elem, './/*[local-name()="OFFICIALNAME"]')
+                official_name = XmlUtils.get_text(addr_elem, './/*[local-name()="OFFICIALNAME"]')
 
                 if official_name:  # Only create contractor if we have a name
                     contractor_data = ContractorModel(
                         official_name=official_name,
-                        address=self._get_text(addr_elem, './/*[local-name()="ADDRESS"]'),
-                        town=self._get_text(addr_elem, './/*[local-name()="TOWN"]'),
-                        postal_code=self._get_text(addr_elem, './/*[local-name()="POSTAL_CODE"]'),
-                        country_code=self._get_attr(addr_elem, './/*[local-name()="COUNTRY"]', 'VALUE'),
-                        nuts_code=self._get_attr(addr_elem, './/*[local-name()="NUTS"]', 'CODE'),
-                        phone=self._get_text(addr_elem, './/*[local-name()="PHONE"]'),
-                        email=self._get_text(addr_elem, './/*[local-name()="E_MAIL"]'),
-                        fax=self._get_text(addr_elem, './/*[local-name()="FAX"]'),
-                        url=self._get_text(addr_elem, './/*[local-name()="URL"]'),
+                        address=XmlUtils.get_text(addr_elem, './/*[local-name()="ADDRESS"]'),
+                        town=XmlUtils.get_text(addr_elem, './/*[local-name()="TOWN"]'),
+                        postal_code=XmlUtils.get_text(addr_elem, './/*[local-name()="POSTAL_CODE"]'),
+                        country_code=XmlUtils.get_attr(addr_elem, './/*[local-name()="COUNTRY"]', 'VALUE'),
+                        nuts_code=XmlUtils.get_attr(addr_elem, './/*[local-name()="NUTS"]', 'CODE'),
+                        phone=XmlUtils.get_text(addr_elem, './/*[local-name()="PHONE"]'),
+                        email=XmlUtils.get_text(addr_elem, './/*[local-name()="E_MAIL"]'),
+                        fax=XmlUtils.get_text(addr_elem, './/*[local-name()="FAX"]'),
+                        url=XmlUtils.get_text(addr_elem, './/*[local-name()="URL"]'),
                         is_sme=len(contractor_elem.xpath('.//*[local-name()="SME"]')) > 0
                     )
                     contractors.append(contractor_data)
@@ -191,31 +186,4 @@ class TedXmlParser(BaseParser):
 
         return contractors
 
-    def _get_text(self, elem, xpath, default=''):
-        """Get text content from xpath."""
-        result = elem.xpath(xpath)
-        return result[0].text if result and result[0].text else default
-
-    def _get_attr(self, elem, xpath, attr, default=''):
-        """Get attribute value from xpath."""
-        result = elem.xpath(xpath)
-        return result[0].get(attr, default) if result else default
-
-    def _get_multiline_text(self, elem, xpath):
-        """Get concatenated text from multiple P elements."""
-        results = elem.xpath(xpath)
-        return ' '.join(p.text for p in results if p.text).strip()
-
-    def _get_int(self, elem, xpath, default=None):
-        """Get integer value from xpath."""
-        text = self._get_text(elem, xpath)
-        return int(text) if text and text.isdigit() else default
-
-    def _get_decimal(self, elem, xpath, default=None):
-        """Get decimal value from xpath."""
-        text = self._get_text(elem, xpath)
-        try:
-            return float(text) if text else default
-        except ValueError:
-            return default
 

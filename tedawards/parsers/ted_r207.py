@@ -12,9 +12,9 @@ from lxml import etree
 from .base import BaseParser
 from ..schema import (
     TedParserResultModel, TedAwardDataModel, DocumentModel,
-    ContractingBodyModel, ContractModel, AwardModel, ContractorModel,
-    normalize_date_string
+    ContractingBodyModel, ContractModel, AwardModel, ContractorModel
 )
+from ..utils import FileDetector, DateParsingUtils
 
 logger = logging.getLogger(__name__)
 
@@ -24,26 +24,7 @@ class TedR207Parser(BaseParser):
 
     def can_parse(self, xml_file: Path) -> bool:
         """Check if this file uses TED R2.0.7 format."""
-        try:
-            tree = etree.parse(xml_file)
-            root = tree.getroot()
-
-            # Check for TED_EXPORT namespace
-            if root.tag != '{http://publications.europa.eu/TED_schema/Export}TED_EXPORT':
-                return False
-
-            # Check for CONTRACT_AWARD form (legacy format)
-            contract_award = root.find('.//{http://publications.europa.eu/TED_schema/Export}CONTRACT_AWARD')
-            if contract_award is not None:
-                # Check if it's document type 7 (Contract award)
-                doc_type = root.find('.//{http://publications.europa.eu/TED_schema/Export}TD_DOCUMENT_TYPE[@CODE="7"]')
-                return doc_type is not None
-
-            return False
-
-        except Exception as e:
-            logger.debug(f"Error checking if {xml_file.name} is TED R2.0.7 format: {e}")
-            return False
+        return FileDetector.is_ted_r207(xml_file)
 
     def get_format_name(self) -> str:
         """Return the format name for this parser."""
@@ -106,7 +87,7 @@ class TedR207Parser(BaseParser):
                 logger.debug(f"No publication date found in {xml_file.name}")
                 return None
 
-            pub_date = normalize_date_string(pub_date_elem.text)
+            pub_date = DateParsingUtils.normalize_date_string(pub_date_elem.text)
             if not pub_date:
                 logger.debug(f"Invalid publication date in {xml_file.name}")
                 return None
@@ -115,7 +96,7 @@ class TedR207Parser(BaseParser):
             dispatch_date_elem = root.find('.//{http://publications.europa.eu/TED_schema/Export}DS_DATE_DISPATCH')
             dispatch_date = None
             if dispatch_date_elem is not None:
-                dispatch_date = normalize_date_string(dispatch_date_elem.text)
+                dispatch_date = DateParsingUtils.normalize_date_string(dispatch_date_elem.text)
 
             # Extract other document metadata
             reception_id_elem = root.find('.//{http://publications.europa.eu/TED_schema/Export}RECEPTION_ID')
@@ -133,7 +114,7 @@ class TedR207Parser(BaseParser):
                 'edition': root.get('EDITION'),
                 'version': None,  # Legacy format doesn't have version info
                 'reception_id': reception_id_elem.text if reception_id_elem is not None else None,
-                'deletion_date': normalize_date_string(deletion_date_elem.text) if deletion_date_elem is not None else None,
+                'deletion_date': DateParsingUtils.normalize_date_string(deletion_date_elem.text) if deletion_date_elem is not None else None,
                 'form_language': form_language,
                 'official_journal_ref': oj_ref_elem.text if oj_ref_elem is not None else None,
                 'publication_date': pub_date,
@@ -277,15 +258,7 @@ class TedR207Parser(BaseParser):
                     month_elem = award_date_elem.find('.//{http://publications.europa.eu/TED_schema/Export}MONTH')
                     year_elem = award_date_elem.find('.//{http://publications.europa.eu/TED_schema/Export}YEAR')
 
-                    if all(elem is not None for elem in [day_elem, month_elem, year_elem]):
-                        try:
-                            award_date = datetime(
-                                int(year_elem.text),
-                                int(month_elem.text),
-                                int(day_elem.text)
-                            ).date()
-                        except (ValueError, TypeError):
-                            pass
+                    award_date = DateParsingUtils.parse_date_components(day_elem, month_elem, year_elem)
 
                 # Extract number of offers received
                 offers_received = None
