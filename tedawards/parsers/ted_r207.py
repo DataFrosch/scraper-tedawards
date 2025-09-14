@@ -263,9 +263,9 @@ class TedR207Parser(BaseParser):
                 # Extract number of offers received
                 offers_received = None
                 offers_elem = award_section.find('.//{http://publications.europa.eu/TED_schema/Export}OFFERS_RECEIVED_NUMBER')
-                if offers_elem is not None:
+                if offers_elem is not None and offers_elem.text is not None:
                     try:
-                        offers_received = int(offers_elem.text)
+                        offers_received = int(offers_elem.text.strip())
                     except (ValueError, TypeError) as e:
                         logger.error(f"Error parsing offers received: {e}")
                         raise
