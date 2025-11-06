@@ -204,11 +204,24 @@ class TedV2Parser(BaseParser):
     def _extract_contracting_body_r207(self, root) -> Optional[Dict]:
         """Extract contracting body for R2.0.7/R2.0.8 formats."""
         # Find contracting authority in R2.0.7/R2.0.8 format
-        ca_elem = root.find('.//{http://publications.europa.eu/TED_schema/Export}CONTACTING_AUTHORITY_INFORMATION//{http://publications.europa.eu/TED_schema/Export}CA_CE_CONCESSIONAIRE_PROFILE')
+        # R2.0.7 uses CONTACTING_AUTHORITY_INFORMATION
+        # R2.0.8 uses CONTRACTING_AUTHORITY_INFORMATION_CONTRACT_AWARD
+        ca_elem = root.find('.//{http://publications.europa.eu/TED_schema/Export}CA_CE_CONCESSIONAIRE_PROFILE')
         if ca_elem is None:
             return None
 
-        name_elem = ca_elem.find('.//{http://publications.europa.eu/TED_schema/Export}ORGANISATION')
+        # Extract organization name - handle both R2.0.7 and R2.0.8 structures
+        org_elem = ca_elem.find('.//{http://publications.europa.eu/TED_schema/Export}ORGANISATION')
+        official_name = ''
+        if org_elem is not None:
+            # R2.0.8: ORGANISATION > OFFICIALNAME
+            officialname_elem = org_elem.find('.//{http://publications.europa.eu/TED_schema/Export}OFFICIALNAME')
+            if officialname_elem is not None and officialname_elem.text:
+                official_name = officialname_elem.text
+            # R2.0.7: ORGANISATION directly contains text
+            elif org_elem.text:
+                official_name = org_elem.text
+
         address_elem = ca_elem.find('.//{http://publications.europa.eu/TED_schema/Export}ADDRESS')
         town_elem = ca_elem.find('.//{http://publications.europa.eu/TED_schema/Export}TOWN')
         postal_code_elem = ca_elem.find('.//{http://publications.europa.eu/TED_schema/Export}POSTAL_CODE')
@@ -217,15 +230,16 @@ class TedV2Parser(BaseParser):
         email_elem = ca_elem.find('.//{http://publications.europa.eu/TED_schema/Export}E_MAIL')
         fax_elem = ca_elem.find('.//{http://publications.europa.eu/TED_schema/Export}FAX')
 
-        # Extract URL from various possible locations - also fix this path
-        url_elem = root.find('.//{http://publications.europa.eu/TED_schema/Export}INTERNET_ADDRESSES_CONTRACT_AWARD//{http://publications.europa.eu/TED_schema/Export}URL_BUYER')
+        # Extract URL from various possible locations
+        url_general_elem = root.find('.//{http://publications.europa.eu/TED_schema/Export}URL_GENERAL')
+        url_buyer_elem = root.find('.//{http://publications.europa.eu/TED_schema/Export}URL_BUYER')
 
         # Extract authority type and activity codes from coded data section
         authority_type_elem = root.find('.//{http://publications.europa.eu/TED_schema/Export}AA_AUTHORITY_TYPE')
         activity_elem = root.find('.//{http://publications.europa.eu/TED_schema/Export}MA_MAIN_ACTIVITIES')
 
         return {
-            'official_name': name_elem.text if name_elem is not None else '',
+            'official_name': official_name,
             'address': address_elem.text if address_elem is not None else None,
             'town': town_elem.text if town_elem is not None else None,
             'postal_code': postal_code_elem.text if postal_code_elem is not None else None,
@@ -235,8 +249,8 @@ class TedV2Parser(BaseParser):
             'phone': phone_elem.text if phone_elem is not None else None,
             'email': email_elem.text if email_elem is not None else None,
             'fax': fax_elem.text if fax_elem is not None else None,
-            'url_general': url_elem.text if url_elem is not None else None,
-            'url_buyer': None,  # Not in legacy format
+            'url_general': url_general_elem.text if url_general_elem is not None else None,
+            'url_buyer': url_buyer_elem.text if url_buyer_elem is not None else None,
             'authority_type_code': authority_type_elem.get('CODE') if authority_type_elem is not None else None,
             'main_activity_code': activity_elem.get('CODE') if activity_elem is not None else None
         }
@@ -455,14 +469,25 @@ class TedV2Parser(BaseParser):
             if contact_data_elem is None:
                 continue
 
-            name_elem = contact_data_elem.find('.//{http://publications.europa.eu/TED_schema/Export}ORGANISATION//{http://publications.europa.eu/TED_schema/Export}OFFICIALNAME')
+            # Extract organization name - handle both R2.0.7 and R2.0.8 structures
+            org_elem = contact_data_elem.find('.//{http://publications.europa.eu/TED_schema/Export}ORGANISATION')
+            official_name = ''
+            if org_elem is not None:
+                # R2.0.8: ORGANISATION > OFFICIALNAME
+                officialname_elem = org_elem.find('.//{http://publications.europa.eu/TED_schema/Export}OFFICIALNAME')
+                if officialname_elem is not None and officialname_elem.text:
+                    official_name = officialname_elem.text
+                # R2.0.7: ORGANISATION directly contains text
+                elif org_elem.text:
+                    official_name = org_elem.text
+
             address_elem = contact_data_elem.find('.//{http://publications.europa.eu/TED_schema/Export}ADDRESS')
             town_elem = contact_data_elem.find('.//{http://publications.europa.eu/TED_schema/Export}TOWN')
             postal_code_elem = contact_data_elem.find('.//{http://publications.europa.eu/TED_schema/Export}POSTAL_CODE')
             country_elem = contact_data_elem.find('.//{http://publications.europa.eu/TED_schema/Export}COUNTRY')
 
             contractor_data = {
-                'official_name': name_elem.text if name_elem is not None else '',
+                'official_name': official_name,
                 'address': address_elem.text if address_elem is not None else None,
                 'town': town_elem.text if town_elem is not None else None,
                 'postal_code': postal_code_elem.text if postal_code_elem is not None else None,

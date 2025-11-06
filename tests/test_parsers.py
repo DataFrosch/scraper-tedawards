@@ -499,7 +499,7 @@ class TestEndToEndParsing:
         xml_fixtures = list(FIXTURES_DIR.glob("*.xml"))
         zip_fixtures = [
             f for f in FIXTURES_DIR.glob("*.zip")
-            if "_meta_org." in f.name.lower()
+            if "_meta_" in f.name.lower()  # Include TED META format ZIPs
         ]
 
         all_fixtures = xml_fixtures + zip_fixtures
