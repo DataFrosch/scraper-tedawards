@@ -5,7 +5,7 @@ Shared across all parsers to ensure consistent data format.
 
 from datetime import date
 from typing import List, Optional
-from pydantic import BaseModel, Field, validator
+from pydantic import BaseModel, Field, field_validator
 
 
 class DocumentModel(BaseModel):
@@ -22,12 +22,14 @@ class DocumentModel(BaseModel):
     original_language: Optional[str] = Field(None, description="Original language code")
     source_country: Optional[str] = Field(None, description="Source country code")
 
-    @validator('form_language', 'original_language', pre=True)
+    @field_validator('form_language', 'original_language', mode='before')
+    @classmethod
     def normalize_language_codes(cls, v):
         """Normalize language codes to lowercase for consistency."""
         return v.lower() if v else v
 
-    @validator('source_country', pre=True)
+    @field_validator('source_country', mode='before')
+    @classmethod
     def normalize_country_code(cls, v):
         """Normalize country codes to uppercase for consistency (ISO standard)."""
         return v.upper() if v else v
@@ -50,7 +52,8 @@ class ContractingBodyModel(BaseModel):
     authority_type_code: Optional[str] = Field(None, description="Authority type code")
     main_activity_code: Optional[str] = Field(None, description="Main activity code")
 
-    @validator('country_code', pre=True)
+    @field_validator('country_code', mode='before')
+    @classmethod
     def normalize_country_code(cls, v):
         """Normalize country codes to uppercase for consistency (ISO standard)."""
         return v.upper() if v else v
@@ -84,7 +87,8 @@ class ContractorModel(BaseModel):
     url: Optional[str] = Field(None, description="URL")
     is_sme: bool = Field(False, description="Is small/medium enterprise")
 
-    @validator('country_code', pre=True)
+    @field_validator('country_code', mode='before')
+    @classmethod
     def normalize_country_code(cls, v):
         """Normalize country codes to uppercase for consistency (ISO standard)."""
         return v.upper() if v else v
@@ -107,7 +111,8 @@ class AwardModel(BaseModel):
     subcontracting_description: Optional[str] = Field(None, description="Subcontracting description")
     contractors: List[ContractorModel] = Field(default_factory=list, description="List of contractors")
 
-    @validator('contractors', pre=True)
+    @field_validator('contractors', mode='before')
+    @classmethod
     def ensure_contractors_list(cls, v):
         """Ensure contractors is always a list."""
         if not v:
@@ -122,7 +127,8 @@ class TedAwardDataModel(BaseModel):
     contract: ContractModel = Field(..., description="Contract information")
     awards: List[AwardModel] = Field(..., description="List of awards")
 
-    @validator('awards', pre=True)
+    @field_validator('awards', mode='before')
+    @classmethod
     def ensure_awards_list(cls, v):
         """Ensure awards is always a list with at least one award."""
         if not v:
@@ -134,7 +140,8 @@ class TedParserResultModel(BaseModel):
     """Parser result model - can contain multiple award documents for text format."""
     awards: List[TedAwardDataModel] = Field(..., description="List of award data documents")
 
-    @validator('awards', pre=True)
+    @field_validator('awards', mode='before')
+    @classmethod
     def ensure_awards_list(cls, v):
         """Ensure awards is always a list."""
         if not isinstance(v, list):
