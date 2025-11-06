@@ -33,22 +33,21 @@ class XmlUtils:
         if elem is None:
             return ''
 
-        # If the element has direct text
+        text_parts = []
+
+        # Add direct text if present
         if elem.text:
-            # Handle cases where there might be nested elements
-            text_parts = [elem.text.strip() if elem.text else '']
+            text_parts.append(elem.text.strip())
 
-            # Add text from any nested elements
-            for child in elem:
-                if child.text:
-                    text_parts.append(child.text.strip())
-                if child.tail:
-                    text_parts.append(child.tail.strip())
+        # Add text from any nested elements (like <P> tags)
+        for child in elem:
+            if child.text:
+                text_parts.append(child.text.strip())
+            if child.tail:
+                text_parts.append(child.tail.strip())
 
-            # Join non-empty parts
-            return ' '.join(part for part in text_parts if part)
-
-        return ''
+        # Join non-empty parts
+        return ' '.join(part for part in text_parts if part)
 
     @staticmethod
     def get_multiline_text(elem, xpath: str) -> str:

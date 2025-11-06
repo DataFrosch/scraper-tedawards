@@ -305,7 +305,7 @@ class TestTedV2R209Parser:
         assert isinstance(award, AwardModel)
         assert award.awarded_value is not None, "Award value should be present"
         assert award.awarded_value == 3467275.00, "Award value should match"
-        assert award.currency_code == "PLN", "Currency should be PLN"
+        assert award.awarded_value_currency == "PLN", "Currency should be PLN"
         assert award.tenders_received == 5, "Should have received 5 tenders"
 
         # Validate contractors
