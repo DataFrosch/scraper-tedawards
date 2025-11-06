@@ -21,6 +21,14 @@ from tedawards.schema import (
 
 FIXTURES_DIR = Path(__file__).parent.parent / "fixtures"
 
+# List of TED META XML fixtures to test
+TED_META_FIXTURES = [
+    "ted_meta_2008_en.zip",
+    "ted_meta_2009_de.zip",
+    "ted_meta_2009_pl.zip",
+    "ted_meta_2010_cs.zip",
+]
+
 
 class TestTedMetaXmlParser:
     """Tests for TED META XML format parser (2008-2013)."""
@@ -30,27 +38,23 @@ class TestTedMetaXmlParser:
         """Create a TED META XML parser instance."""
         return TedMetaXmlParser()
 
-    def test_can_parse_2008_meta_format(self, parser):
-        """Test parser detection for 2008 META format."""
-        fixture_file = FIXTURES_DIR / "ted_meta_2008_en.zip"
+    @pytest.mark.parametrize("fixture_name", TED_META_FIXTURES)
+    def test_can_parse_meta_format(self, parser, fixture_name):
+        """Test parser detection for TED META XML format."""
+        fixture_file = FIXTURES_DIR / fixture_name
         assert fixture_file.exists(), f"Fixture file not found: {fixture_file}"
-        assert parser.can_parse(fixture_file), "Parser should detect 2008 META format"
+        assert parser.can_parse(fixture_file), f"Parser should detect META format for {fixture_name}"
 
-    def test_can_parse_2010_meta_format(self, parser):
-        """Test parser detection for 2010 META format."""
-        fixture_file = FIXTURES_DIR / "ted_meta_2010_cs.zip"
-        assert fixture_file.exists(), f"Fixture file not found: {fixture_file}"
-        assert parser.can_parse(fixture_file), "Parser should detect 2010 META format"
-
-    def test_parse_2008_meta_document(self, parser):
-        """Test parsing 2008 META format document."""
-        fixture_file = FIXTURES_DIR / "ted_meta_2008_en.zip"
+    @pytest.mark.parametrize("fixture_name", TED_META_FIXTURES)
+    def test_parse_meta_document(self, parser, fixture_name):
+        """Test parsing TED META XML format document."""
+        fixture_file = FIXTURES_DIR / fixture_name
         result = parser.parse_xml_file(fixture_file)
 
         # Validate result structure
-        assert result is not None, "Parser should return result"
+        assert result is not None, f"Parser should return result for {fixture_name}"
         assert isinstance(result, TedParserResultModel), "Result should be TedParserResultModel"
-        assert len(result.awards) > 0, "Should extract at least one award"
+        assert len(result.awards) > 0, f"Should extract at least one award from {fixture_name}"
 
         # Validate first award data
         award_data = result.awards[0]
@@ -59,43 +63,25 @@ class TestTedMetaXmlParser:
         # Validate document
         document = award_data.document
         assert isinstance(document, DocumentModel)
-        assert document.doc_id, "Document ID should be present"
-        assert document.publication_date is not None, "Publication date should be present"
-        assert document.original_language, "Original language should be present"
-        assert document.source_country, "Source country should be present"
+        assert document.doc_id, f"Document ID should be present in {fixture_name}"
+        assert document.publication_date is not None, f"Publication date should be present in {fixture_name}"
+        assert document.original_language, f"Original language should be present in {fixture_name}"
+        assert document.source_country, f"Source country should be present in {fixture_name}"
 
         # Validate contracting body
         contracting_body = award_data.contracting_body
         assert isinstance(contracting_body, ContractingBodyModel)
-        assert contracting_body.official_name, "Contracting body name should be present"
+        assert contracting_body.official_name, f"Contracting body name should be present in {fixture_name}"
 
         # Validate contract
         contract = award_data.contract
         assert isinstance(contract, ContractModel)
-        assert contract.title, "Contract title should be present"
+        assert contract.title, f"Contract title should be present in {fixture_name}"
 
         # Validate awards
-        assert len(award_data.awards) > 0, "Should have at least one award"
+        assert len(award_data.awards) > 0, f"Should have at least one award in {fixture_name}"
         award = award_data.awards[0]
         assert isinstance(award, AwardModel)
-
-    def test_parse_2010_meta_document(self, parser):
-        """Test parsing 2010 META format document."""
-        fixture_file = FIXTURES_DIR / "ted_meta_2010_cs.zip"
-        result = parser.parse_xml_file(fixture_file)
-
-        # Validate result structure
-        assert result is not None, "Parser should return result"
-        assert isinstance(result, TedParserResultModel)
-        assert len(result.awards) > 0, "Should extract at least one award"
-
-        # Validate award data
-        award_data = result.awards[0]
-        assert isinstance(award_data, TedAwardDataModel)
-        assert award_data.document is not None
-        assert award_data.contracting_body is not None
-        assert award_data.contract is not None
-        assert len(award_data.awards) > 0
 
     def test_get_format_name(self, parser):
         """Test parser format name."""

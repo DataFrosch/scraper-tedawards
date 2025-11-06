@@ -19,6 +19,31 @@ from tedawards.parsers.eforms_ubl import EFormsUBLParser
 
 FIXTURES_DIR = Path(__file__).parent.parent / "fixtures"
 
+# Import fixture lists from other test modules
+TED_META_FIXTURES = [
+    "ted_meta_2008_en.zip",
+    "ted_meta_2009_de.zip",
+    "ted_meta_2009_pl.zip",
+    "ted_meta_2010_cs.zip",
+]
+
+TED_V2_R207_FIXTURES = [
+    "ted_v2_r2_0_7_2011.xml",
+]
+
+TED_V2_R208_FIXTURES = [
+    "ted_v2_r2_0_8_2015.xml",
+]
+
+TED_V2_R209_FIXTURES = [
+    "ted_v2_r2_0_9_2024.xml",
+]
+
+EFORMS_UBL_FIXTURES = [
+    "eforms_ubl_2025.xml",
+    "eforms_ubl_2025_alt.xml",
+]
+
 
 class TestParserFactory:
     """Tests for ParserFactory auto-detection."""
@@ -28,47 +53,45 @@ class TestParserFactory:
         """Create a parser factory instance."""
         return ParserFactory()
 
-    def test_factory_detects_ted_meta_2008(self, factory):
-        """Test factory auto-detects TED META 2008 format."""
-        fixture_file = FIXTURES_DIR / "ted_meta_2008_en.zip"
+    @pytest.mark.parametrize("fixture_name", TED_META_FIXTURES)
+    def test_factory_detects_ted_meta(self, factory, fixture_name):
+        """Test factory auto-detects TED META XML format."""
+        fixture_file = FIXTURES_DIR / fixture_name
         parser = factory.get_parser(fixture_file)
-        assert parser is not None, "Factory should return a parser"
-        assert isinstance(parser, TedMetaXmlParser), "Should detect TED META XML parser"
+        assert parser is not None, f"Factory should return a parser for {fixture_name}"
+        assert isinstance(parser, TedMetaXmlParser), f"Should detect TED META XML parser for {fixture_name}"
 
-    def test_factory_detects_ted_meta_2010(self, factory):
-        """Test factory auto-detects TED META 2010 format."""
-        fixture_file = FIXTURES_DIR / "ted_meta_2010_cs.zip"
-        parser = factory.get_parser(fixture_file)
-        assert parser is not None, "Factory should return a parser"
-        assert isinstance(parser, TedMetaXmlParser), "Should detect TED META XML parser"
-
-    def test_factory_detects_ted_v2_r207(self, factory):
+    @pytest.mark.parametrize("fixture_name", TED_V2_R207_FIXTURES)
+    def test_factory_detects_ted_v2_r207(self, factory, fixture_name):
         """Test factory auto-detects TED 2.0 R2.0.7 format."""
-        fixture_file = FIXTURES_DIR / "ted_v2_r2_0_7_2011.xml"
+        fixture_file = FIXTURES_DIR / fixture_name
         parser = factory.get_parser(fixture_file)
-        assert parser is not None, "Factory should return a parser"
-        assert isinstance(parser, TedV2Parser), "Should detect TED V2 parser"
+        assert parser is not None, f"Factory should return a parser for {fixture_name}"
+        assert isinstance(parser, TedV2Parser), f"Should detect TED V2 parser for {fixture_name}"
 
-    def test_factory_detects_ted_v2_r208(self, factory):
+    @pytest.mark.parametrize("fixture_name", TED_V2_R208_FIXTURES)
+    def test_factory_detects_ted_v2_r208(self, factory, fixture_name):
         """Test factory auto-detects TED 2.0 R2.0.8 format."""
-        fixture_file = FIXTURES_DIR / "ted_v2_r2_0_8_2015.xml"
+        fixture_file = FIXTURES_DIR / fixture_name
         parser = factory.get_parser(fixture_file)
-        assert parser is not None, "Factory should return a parser"
-        assert isinstance(parser, TedV2Parser), "Should detect TED V2 parser"
+        assert parser is not None, f"Factory should return a parser for {fixture_name}"
+        assert isinstance(parser, TedV2Parser), f"Should detect TED V2 parser for {fixture_name}"
 
-    def test_factory_detects_ted_v2_r209(self, factory):
+    @pytest.mark.parametrize("fixture_name", TED_V2_R209_FIXTURES)
+    def test_factory_detects_ted_v2_r209(self, factory, fixture_name):
         """Test factory auto-detects TED 2.0 R2.0.9 format."""
-        fixture_file = FIXTURES_DIR / "ted_v2_r2_0_9_2024.xml"
+        fixture_file = FIXTURES_DIR / fixture_name
         parser = factory.get_parser(fixture_file)
-        assert parser is not None, "Factory should return a parser"
-        assert isinstance(parser, TedV2Parser), "Should detect TED V2 parser"
+        assert parser is not None, f"Factory should return a parser for {fixture_name}"
+        assert isinstance(parser, TedV2Parser), f"Should detect TED V2 parser for {fixture_name}"
 
-    def test_factory_detects_eforms_ubl(self, factory):
+    @pytest.mark.parametrize("fixture_name", EFORMS_UBL_FIXTURES)
+    def test_factory_detects_eforms_ubl(self, factory, fixture_name):
         """Test factory auto-detects eForms UBL format."""
-        fixture_file = FIXTURES_DIR / "eforms_ubl_2025.xml"
+        fixture_file = FIXTURES_DIR / fixture_name
         parser = factory.get_parser(fixture_file)
-        assert parser is not None, "Factory should return a parser"
-        assert isinstance(parser, EFormsUBLParser), "Should detect eForms UBL parser"
+        assert parser is not None, f"Factory should return a parser for {fixture_name}"
+        assert isinstance(parser, EFormsUBLParser), f"Should detect eForms UBL parser for {fixture_name}"
 
     def test_factory_supported_formats(self, factory):
         """Test factory returns list of supported formats."""
