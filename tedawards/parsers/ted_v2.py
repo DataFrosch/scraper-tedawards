@@ -4,6 +4,7 @@ Handles R2.0.7, R2.0.8, and R2.0.9 formats (2008-2023).
 """
 
 import logging
+from datetime import date
 from pathlib import Path
 from typing import Dict, List, Optional
 from lxml import etree
@@ -13,7 +14,6 @@ from ..schema import (
     TedParserResultModel, TedAwardDataModel, DocumentModel,
     ContractingBodyModel, ContractModel, AwardModel, ContractorModel
 )
-from ..utils import FileDetector, DateParsingUtils, XmlUtils
 
 logger = logging.getLogger(__name__)
 
@@ -23,7 +23,31 @@ class TedV2Parser(BaseParser):
 
     def can_parse(self, xml_file: Path) -> bool:
         """Check if this file uses any TED 2.0 format variant."""
-        return FileDetector.is_ted_v2(xml_file)
+        try:
+            tree = etree.parse(xml_file)
+            root = tree.getroot()
+
+            # Check for TED_EXPORT root element (namespace-agnostic check)
+            # Different R2.0.x versions use different namespaces:
+            # - R2.0.7/R2.0.8: http://publications.europa.eu/TED_schema/Export
+            # - R2.0.9: http://publications.europa.eu/resource/schema/ted/R2.0.9/publication
+            if not root.tag.endswith('}TED_EXPORT') and root.tag != 'TED_EXPORT':
+                return False
+
+            # Check if it's document type 7 (Contract award) - use namespace-agnostic xpath
+            doc_type = root.xpath('.//*[local-name()="TD_DOCUMENT_TYPE"][@CODE="7"]')
+            if not doc_type:
+                return False
+
+            # Must have either CONTRACT_AWARD (R2.0.7/R2.0.8) or F03_2014 (R2.0.9) form
+            has_contract_award = len(root.xpath('.//*[local-name()="CONTRACT_AWARD"]')) > 0
+            has_f03_2014 = len(root.xpath('.//*[local-name()="F03_2014"]')) > 0
+
+            return has_contract_award or has_f03_2014
+
+        except Exception as e:
+            logger.debug(f"Error checking if {xml_file.name} is TED 2.0 format: {e}")
+            return False
 
     def get_format_name(self) -> str:
         """Return the format name for this parser."""
@@ -156,16 +180,22 @@ class TedV2Parser(BaseParser):
                 logger.debug(f"No publication date found in {xml_file.name}")
                 return None
 
-            pub_date = DateParsingUtils.normalize_date_string(pub_date_elems[0].text)
-            if not pub_date:
-                logger.debug(f"Invalid publication date in {xml_file.name}")
-                return None
+            # Parse ISO format date (YYYYMMDD from TED XML)
+            try:
+                pub_date = date.fromisoformat(pub_date_elems[0].text.strip())
+            except (ValueError, AttributeError) as e:
+                logger.error(f"Invalid publication date in {xml_file.name}: '{pub_date_elems[0].text}'. Error: {e}")
+                raise
 
             # Extract dispatch date - use namespace-agnostic xpath
             dispatch_date_elems = root.xpath('.//*[local-name()="DS_DATE_DISPATCH"]')
             dispatch_date = None
             if dispatch_date_elems and dispatch_date_elems[0].text:
-                dispatch_date = DateParsingUtils.normalize_date_string(dispatch_date_elems[0].text)
+                try:
+                    dispatch_date = date.fromisoformat(dispatch_date_elems[0].text.strip())
+                except (ValueError, AttributeError) as e:
+                    logger.error(f"Invalid dispatch date in {xml_file.name}: '{dispatch_date_elems[0].text}'. Error: {e}")
+                    raise
 
             # Extract other document metadata - use namespace-agnostic xpath
             reception_id_elems = root.xpath('.//*[local-name()="RECEPTION_ID"]')
@@ -328,8 +358,8 @@ class TedV2Parser(BaseParser):
         procedure_elem = root.find('.//{http://publications.europa.eu/TED_schema/Export}PR_PROC')
 
         return {
-            'title': XmlUtils.extract_text(title_elem) if title_elem is not None else '',
-            'description': XmlUtils.extract_text(description_elem) if description_elem is not None else None,
+            'title': ''.join(title_elem.itertext()).strip() if title_elem is not None else '',
+            'description': ''.join(description_elem.itertext()).strip() if description_elem is not None else None,
             'main_cpv_code': cpv_main_elem.get('CODE') if cpv_main_elem is not None else None,
             'cpv_codes_additional': [elem.get('CODE') for elem in cpv_additional_elems] if cpv_additional_elems else [],
             'contract_nature_code': nature_elem.get('CODE') if nature_elem is not None else None,
@@ -357,8 +387,8 @@ class TedV2Parser(BaseParser):
         type_contract_elems = object_elem.xpath('.//*[local-name()="TYPE_CONTRACT"]')
 
         return {
-            'title': XmlUtils.extract_text(title_elems[0]) if title_elems else '',
-            'description': XmlUtils.extract_text(description_elems[0]) if description_elems else None,
+            'title': ''.join(title_elems[0].itertext()).strip() if title_elems else '',
+            'description': ''.join(description_elems[0].itertext()).strip() if description_elems else None,
             'main_cpv_code': cpv_main_elems[0].get('CODE') if cpv_main_elems else None,
             'cpv_codes_additional': [elem.get('CODE') for elem in cpv_additional_elems] if cpv_additional_elems else [],
             'contract_nature_code': type_contract_elems[0].get('CTYPE') if type_contract_elems else None,
@@ -402,7 +432,7 @@ class TedV2Parser(BaseParser):
 
             award_data = {
                 'contract_number': contract_number_elem.text if contract_number_elem is not None else None,
-                'award_title': XmlUtils.extract_text(title_elem) if title_elem is not None else '',
+                'award_title': ''.join(title_elem.itertext()).strip() if title_elem is not None else '',
                 'conclusion_date': self._parse_award_date(award_date_elem) if award_date_elem is not None else None,
                 'awarded_value': self._extract_value_amount(value_elem, currency_elem),
                 'awarded_value_currency': currency_elem.get('CURRENCY') if currency_elem is not None else None,
@@ -446,7 +476,7 @@ class TedV2Parser(BaseParser):
 
             award_data = {
                 'contract_number': contract_number_elems[0].text if contract_number_elems and contract_number_elems[0].text else None,
-                'award_title': XmlUtils.extract_text(title_elems[0]) if title_elems else '',
+                'award_title': ''.join(title_elems[0].itertext()).strip() if title_elems else '',
                 'conclusion_date': self._parse_award_date(award_date_elems[0]) if award_date_elems else None,
                 'awarded_value': self._extract_value_amount_r209(value_elems[0]) if value_elems else None,
                 'awarded_value_currency': value_elems[0].get('CURRENCY') if value_elems else None,
@@ -548,7 +578,11 @@ class TedV2Parser(BaseParser):
 
         # Fall back to direct text if available
         if hasattr(date_elem, 'text') and date_elem.text:
-            return DateParsingUtils.normalize_date_string(date_elem.text)
+            try:
+                return date.fromisoformat(date_elem.text.strip())
+            except (ValueError, AttributeError) as e:
+                logger.error(f"Invalid date: '{date_elem.text}'. Error: {e}")
+                raise
 
         return None
 

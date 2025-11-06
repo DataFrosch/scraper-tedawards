@@ -4,6 +4,7 @@ Handles the META XML format contained in ZIP archives.
 """
 
 import logging
+import re
 import zipfile
 from pathlib import Path
 from typing import List, Optional
@@ -15,7 +16,6 @@ from ..schema import (
     TedParserResultModel, TedAwardDataModel, DocumentModel,
     ContractingBodyModel, ContractModel, AwardModel, ContractorModel
 )
-from ..utils import FileDetector
 
 logger = logging.getLogger(__name__)
 
@@ -25,7 +25,8 @@ class TedMetaXmlParser(BaseParser):
 
     def can_parse(self, file_path: Path) -> bool:
         """Check if this file uses TED META XML format."""
-        if not FileDetector.is_ted_text_format(file_path):
+        # First check if it's a ZIP file with the correct pattern
+        if not self._is_ted_text_format(file_path):
             return False
 
         # Check if the wrapper filename contains _meta_org or _meta
@@ -33,7 +34,6 @@ class TedMetaXmlParser(BaseParser):
             return True
 
         # If not, check the contents (for test fixtures with simplified names)
-        import zipfile
         try:
             with zipfile.ZipFile(file_path, 'r') as zf:
                 names = zf.namelist()
@@ -46,6 +46,41 @@ class TedMetaXmlParser(BaseParser):
             pass
 
         return False
+
+    def _is_ted_text_format(self, file_path: Path) -> bool:
+        """Check if this file uses TED text format (ZIP containing text files)."""
+        try:
+            # Check for both uppercase and lowercase zip extensions
+            if not (file_path.name.upper().endswith('.ZIP')):
+                return False
+
+            # Check if it's a language-specific ZIP file pattern - case insensitive
+            # Format patterns:
+            # - XX_YYYYMMDD_NNN_UTF8_ORG.ZIP (e.g., EN_20070103_001_UTF8_ORG.ZIP)
+            # - xx_yyyymmdd_nnn_utf8_org.zip (e.g., en_20080103_001_utf8_org.zip)
+            # - xx_yyyymmdd_nnn_meta_org.zip (e.g., en_20080103_001_meta_org.zip) - PREFERRED
+            pattern = r'^[a-zA-Z]{2}_\d{8}_\d+_(utf8|meta|iso)_org'
+
+            # First check the wrapper filename
+            if re.match(pattern, file_path.name, re.IGNORECASE):
+                return True
+
+            # If wrapper doesn't match, check the contents (for test fixtures with simplified names)
+            try:
+                with zipfile.ZipFile(file_path, 'r') as zf:
+                    names = zf.namelist()
+                    if names:
+                        # Check if any file inside matches the pattern
+                        for name in names:
+                            if re.match(pattern, name, re.IGNORECASE):
+                                return True
+            except (zipfile.BadZipFile, OSError):
+                pass
+
+            return False
+        except Exception as e:
+            logger.debug(f"Error checking if {file_path.name} is TED text format: {e}")
+            return False
 
     def get_format_name(self) -> str:
         """Return the format name for this parser."""
