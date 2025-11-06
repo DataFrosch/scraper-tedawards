@@ -63,10 +63,9 @@ class TedV2Parser(BaseParser):
             variant = self._detect_variant(root)
             logger.debug(f"Processing {xml_file.name} as {variant}")
 
-            # Check if this document is in its original language to avoid duplicates
-            original_lang = self._get_original_language(root)
-            if not self._is_original_language_version(root, original_lang):
-                logger.debug(f"Skipping {xml_file.name} - translation (original language: {original_lang})")
+            # Check if this document is in English
+            if not self._is_english_version(root):
+                logger.debug(f"Skipping {xml_file.name} - not English language version")
                 return None
 
             # Extract all components using variant-aware methods
@@ -133,29 +132,17 @@ class TedV2Parser(BaseParser):
 
         return "Unknown"
 
-    def _get_original_language(self, root) -> Optional[str]:
-        """Get the original language of the document."""
-        # Use namespace-agnostic xpath since R2.0.9 uses different namespace
-        lang_orig_elems = root.xpath('.//*[local-name()="LG_ORIG"]/text()')
-        return lang_orig_elems[0].strip() if lang_orig_elems else None
-
-    def _is_original_language_version(self, root, original_lang: str) -> bool:
-        """Check if this XML document represents the original language version."""
-        if not original_lang:
-            # Fail loud - original language is required for deduplication
-            raise ValueError(f"No original language (LG_ORIG) found in document - cannot determine if this is original or translation")
-
+    def _is_english_version(self, root) -> bool:
+        """Check if this XML document is in English language."""
         # Check the form language - use namespace-agnostic xpath
         form_elems = root.xpath('.//*[local-name()="CONTRACT_AWARD" or local-name()="F03_2014"]')
 
         if form_elems:
             form_elem = form_elems[0]
             form_lang = form_elem.get('LG')
-            form_category = form_elem.get('CATEGORY', '').upper()
 
-            # Original documents should have CATEGORY="ORIGINAL" and matching language
-            return (form_category == 'ORIGINAL' and
-                    form_lang == original_lang)
+            # Only process English documents
+            return form_lang == 'EN'
 
         return False
 
@@ -201,7 +188,6 @@ class TedV2Parser(BaseParser):
             reception_id_elems = root.xpath('.//*[local-name()="RECEPTION_ID"]')
             no_doc_oj_elems = root.xpath('.//*[local-name()="NO_DOC_OJS"]')
             country_elems = root.xpath('.//*[local-name()="ISO_COUNTRY"]')
-            original_lang_elems = root.xpath('.//*[local-name()="LG_ORIG"]')
 
             return {
                 'doc_id': doc_id,
@@ -211,8 +197,6 @@ class TedV2Parser(BaseParser):
                 'reception_id': reception_id_elems[0].text if reception_id_elems else None,
                 'official_journal_ref': no_doc_oj_elems[0].text if no_doc_oj_elems else None,
                 'source_country': country_elems[0].get('VALUE') if country_elems else None,
-                'original_language': original_lang_elems[0].text if original_lang_elems else None,
-                'form_language': original_lang_elems[0].text if original_lang_elems else 'EN',
                 'version': variant
             }
 

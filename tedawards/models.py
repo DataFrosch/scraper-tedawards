@@ -111,7 +111,6 @@ class TEDDocument(Base):
     version: Mapped[Optional[str]] = mapped_column(String, nullable=True)
     reception_id: Mapped[Optional[str]] = mapped_column(String, nullable=True)
     deletion_date: Mapped[Optional[date]] = mapped_column(Date, nullable=True)
-    form_language: Mapped[str] = mapped_column(String, ForeignKey('languages.code'), nullable=False)
 
     # Official Journal references
     official_journal_ref: Mapped[Optional[str]] = mapped_column(String, nullable=True)
@@ -124,7 +123,6 @@ class TEDDocument(Base):
     dispatch_date: Mapped[Optional[date]] = mapped_column(Date, nullable=True)
 
     # Source document metadata
-    original_language: Mapped[Optional[str]] = mapped_column(String, ForeignKey('languages.code'), nullable=True)
     source_country: Mapped[Optional[str]] = mapped_column(String, ForeignKey('countries.code'), nullable=True)
 
     created_at: Mapped[datetime] = mapped_column(DateTime, default=func.now())

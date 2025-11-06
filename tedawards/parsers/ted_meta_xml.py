@@ -110,19 +110,19 @@ class TedMetaXmlParser(BaseParser):
                 # Find all award documents
                 award_records = []
 
-                # Process CONTRACT_AWARD elements (original language files only: lg == lgorig)
+                # Process CONTRACT_AWARD elements (English language only)
                 for doc in root.xpath('.//CONTRACT_AWARD[@category="orig"]'):
-                    # Only process if document language matches original language
-                    if doc.get('lg') == doc.get('lgorig'):
+                    # Only process English language documents
+                    if doc.get('lg') == 'EN':
                         award_data = self._convert_meta_xml_to_standard_format(doc)
                         if award_data:
                             award_records.append(award_data)
 
-                # Process OTH_NOT elements with award notices (original language files only: lg == lgorig)
+                # Process OTH_NOT elements with award notices (English language only)
                 for doc in root.xpath('.//OTH_NOT[@category="orig"]'):
-                    # Check if this is an award notice (natnotice code="7") AND original language matches current
+                    # Check if this is an award notice (natnotice code="7") AND English language
                     natnotice = doc.xpath('.//natnotice[@code="7"]')
-                    if natnotice and doc.get('lg') == doc.get('lgorig'):
+                    if natnotice and doc.get('lg') == 'EN':
                         award_data = self._convert_meta_xml_to_standard_format(doc)
                         if award_data:
                             award_records.append(award_data)
@@ -149,11 +149,6 @@ class TedMetaXmlParser(BaseParser):
 
             doc_id = doc_parent.get('id', '')
             current_lang = doc_elem.get('lg', '')
-            original_lang = doc_elem.get('lgorig', '')
-
-            if not original_lang:
-                logger.warning(f"No original language found for document {doc_id}")
-                return None
 
             # Extract codified data
             codifdata = doc_elem.xpath('.//codifdata')[0] if doc_elem.xpath('.//codifdata') else None
@@ -229,11 +224,9 @@ class TedMetaXmlParser(BaseParser):
                 version='1',
                 reception_id=nodocojs,
                 deletion_date=None,
-                form_language=current_lang,
                 official_journal_ref=f"{datepub}/{nodocojs}" if datepub else nodocojs,
                 publication_date=pub_date,
                 dispatch_date=dispatch_date_obj,
-                original_language=original_lang,
                 source_country=isocountry
             )
 
@@ -284,7 +277,7 @@ class TedMetaXmlParser(BaseParser):
                 contractors=contractors
             )
 
-            logger.debug(f"Converted XML document {doc_id} (original: {original_lang}, current: {current_lang})")
+            logger.debug(f"Converted XML document {doc_id} (language: {current_lang})")
 
             return TedAwardDataModel(
                 document=document,

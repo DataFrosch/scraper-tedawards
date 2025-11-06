@@ -15,18 +15,10 @@ class DocumentModel(BaseModel):
     version: Optional[str] = Field(None, description="Document version")
     reception_id: Optional[str] = Field(None, description="Reception identifier")
     deletion_date: Optional[date] = Field(None, description="Deletion date")
-    form_language: str = Field(..., description="Form language code")
     official_journal_ref: Optional[str] = Field(None, description="Official Journal reference")
     publication_date: Optional[date] = Field(None, description="Publication date")
     dispatch_date: Optional[date] = Field(None, description="Dispatch date")
-    original_language: Optional[str] = Field(None, description="Original language code")
     source_country: Optional[str] = Field(None, description="Source country code")
-
-    @field_validator('form_language', 'original_language', mode='before')
-    @classmethod
-    def normalize_language_codes(cls, v):
-        """Normalize language codes to lowercase for consistency."""
-        return v.lower() if v else v
 
     @field_validator('source_country', mode='before')
     @classmethod
