@@ -134,12 +134,6 @@ class TedScraper:
             else:
                 doc_id = file_path.stem.replace('_', '-')
 
-            # Check if any document from this file already exists (simple optimization)
-            # For text files, we'll need to check individual documents later
-            if file_path.suffix.upper() != '.ZIP' and db.document_exists(doc_id):
-                logger.debug(f"Skipping {file_path.name} - already processed")
-                return []
-
             # Get appropriate parser for this file
             parser = self.parser_factory.get_parser(file_path)
             if not parser:
@@ -154,18 +148,8 @@ class TedScraper:
 
             logger.debug(f"Parsed {file_path.name} using {parser.get_format_name()}, found {len(data.awards)} awards")
 
-            # Filter out already processed documents and return new ones
-            new_awards = []
-            for award_data in data.awards:
-                if not db.document_exists(award_data.document.doc_id):
-                    new_awards.append(award_data)
-                else:
-                    logger.debug(f"Skipping document {award_data.document.doc_id} - already exists")
-
-            if new_awards:
-                logger.debug(f"Processed {file_path.name} - {len(new_awards)} new awards")
-
-            return new_awards
+            # Return all awards - database will handle duplicates via INSERT OR IGNORE
+            return data.awards
 
         except Exception as e:
             logger.error(f"Error processing {file_path}: {e}")

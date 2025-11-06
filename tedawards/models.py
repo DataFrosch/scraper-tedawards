@@ -180,6 +180,12 @@ class ContractingBody(Base):
     document: Mapped["TEDDocument"] = relationship("TEDDocument", back_populates="contracting_bodies")
     contracts: Mapped[List["Contract"]] = relationship("Contract", back_populates="contracting_body", cascade="all, delete-orphan")
 
+    # Indexes
+    __table_args__ = (
+        Index('idx_contracting_body_document', 'ted_doc_id'),
+        Index('idx_contracting_body_country', 'country_code'),
+    )
+
 
 class Contract(Base):
     """Contract objects (the main procurement items)."""
@@ -232,6 +238,8 @@ class Contract(Base):
 
     # Indexes
     __table_args__ = (
+        Index('idx_contract_document', 'ted_doc_id'),
+        Index('idx_contract_body', 'contracting_body_id'),
         Index('idx_contracts_value', 'total_value'),
         Index('idx_contracts_cpv', 'main_cpv_code'),
     )
@@ -324,6 +332,8 @@ class Award(Base):
 
     # Indexes
     __table_args__ = (
+        Index('idx_award_contract', 'contract_id'),
+        Index('idx_award_lot', 'lot_id'),
         Index('idx_awards_conclusion_date', 'conclusion_date'),
         Index('idx_awards_value', 'awarded_value'),
     )
@@ -365,8 +375,9 @@ class Contractor(Base):
         back_populates="contractors"
     )
 
-    # Indexes
+    # Constraints and indexes
     __table_args__ = (
+        UniqueConstraint('official_name', 'country_code', name='uq_contractor_name_country'),
         Index('idx_contractors_country', 'country_code'),
         Index('idx_contractors_sme', 'is_sme'),
     )

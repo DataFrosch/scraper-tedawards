@@ -9,6 +9,8 @@ from typing import List, Optional
 
 from sqlalchemy import create_engine, select
 from sqlalchemy.orm import Session, sessionmaker
+from sqlalchemy.exc import IntegrityError
+from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 
 from .config import config
 from .models import (
@@ -17,7 +19,6 @@ from .models import (
     award_contractors, contract_cpv_codes, contract_nuts_codes
 )
 from .schema import TedAwardDataModel
-from .reference_data import ReferenceDataManager
 
 logger = logging.getLogger(__name__)
 
@@ -29,10 +30,9 @@ class DatabaseManager:
         self.engine = None
         self.SessionLocal = None
         self.session: Optional[Session] = None
-        self.reference_manager = ReferenceDataManager()
 
     def connect(self):
-        """Connect to SQLite database."""
+        """Connect to SQLite database and create a session."""
         try:
             db_path = config.DB_PATH
             # Ensure parent directory exists
@@ -47,7 +47,10 @@ class DatabaseManager:
                 connect_args={"check_same_thread": False}  # Needed for SQLite
             )
 
-            self.SessionLocal = sessionmaker(bind=self.engine)
+            # Create session factory
+            self.SessionLocal = sessionmaker(bind=self.engine, expire_on_commit=False)
+
+            # Create session for this manager instance
             self.session = self.SessionLocal()
 
             logger.info(f"Connected to database: {db_path}")
@@ -58,10 +61,10 @@ class DatabaseManager:
             raise
 
     def close(self):
-        """Close database connection."""
+        """Close database session and clean up."""
         if self.session:
             self.session.close()
-            logger.info("Database connection closed")
+            logger.info("Database session closed")
 
     def __enter__(self):
         self.connect()
@@ -80,20 +83,9 @@ class DatabaseManager:
             logger.error(f"Error creating database schema: {e}")
             raise
 
-    def document_exists(self, doc_id: str) -> bool:
-        """Check if document already exists in database."""
-        result = self.session.execute(
-            select(TEDDocument).where(TEDDocument.doc_id == doc_id)
-        ).first()
-        return result is not None
-
     def save_award_data(self, data: TedAwardDataModel):
         """Save parsed award data to database."""
         try:
-            # Collect and flush reference data
-            self.reference_manager.collect_from_award_data(data)
-            self.reference_manager.flush_to_database(self.session)
-
             # Save document
             doc = self._insert_document(data.document.dict())
 
@@ -120,18 +112,17 @@ class DatabaseManager:
             raise
 
     def _insert_document(self, data: dict) -> TEDDocument:
-        """Insert document record."""
-        # Check if document already exists
-        existing = self.session.execute(
+        """Insert document record using INSERT OR IGNORE for better performance."""
+        # Use INSERT OR IGNORE - if doc already exists, get it; otherwise insert
+        stmt = sqlite_insert(TEDDocument).values(**data)
+        stmt = stmt.on_conflict_do_nothing(index_elements=['doc_id'])
+        self.session.execute(stmt)
+        self.session.flush()
+
+        # Fetch the document (either newly inserted or existing)
+        doc = self.session.execute(
             select(TEDDocument).where(TEDDocument.doc_id == data['doc_id'])
-        ).scalar_one_or_none()
-
-        if existing:
-            return existing
-
-        doc = TEDDocument(**data)
-        self.session.add(doc)
-        self.session.flush()  # Flush to get the ID
+        ).scalar_one()
         return doc
 
     def _insert_contracting_body(self, doc_id: str, data: dict) -> ContractingBody:
@@ -167,22 +158,20 @@ class DatabaseManager:
         return award
 
     def _insert_contractor(self, data: dict) -> Contractor:
-        """Insert contractor and return object, or return existing."""
-        # First try to find existing contractor by name and country
-        existing = self.session.execute(
+        """Insert contractor using INSERT OR IGNORE, leveraging unique constraint."""
+        # Use INSERT OR IGNORE - unique constraint handles deduplication
+        stmt = sqlite_insert(Contractor).values(**data)
+        stmt = stmt.on_conflict_do_nothing(index_elements=['official_name', 'country_code'])
+        self.session.execute(stmt)
+        self.session.flush()
+
+        # Fetch the contractor (either newly inserted or existing)
+        contractor = self.session.execute(
             select(Contractor).where(
                 Contractor.official_name == data['official_name'],
                 Contractor.country_code == data.get('country_code')
             )
-        ).scalar_one_or_none()
-
-        if existing:
-            return existing
-
-        # Insert new contractor
-        contractor = Contractor(**data)
-        self.session.add(contractor)
-        self.session.flush()
+        ).scalar_one()
         return contractor
 
     def _link_award_contractor(self, award: Award, contractor: Contractor):
@@ -198,10 +187,6 @@ class DatabaseManager:
             return
 
         try:
-            # Collect and flush reference data for entire batch
-            self.reference_manager.collect_from_batch(awards)
-            self.reference_manager.flush_to_database(self.session)
-
             # Process each award
             for award_data in awards:
                 # Save document
