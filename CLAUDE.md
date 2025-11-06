@@ -47,9 +47,9 @@ The scraper supports multiple TED document formats across different time periods
    - Parser: `EFormsUBLParser` - handles new EU eForms standard
 
 ## Database Architecture
-Database connection and sessions managed in `config.py`:
-- Engine and session factory created at module level
-- `get_session()` context manager for transaction management
+Database setup handled directly in `scraper.py`:
+- Engine and session factory created at module level from environment variables
+- `get_session()` context manager for transaction management with automatic commit/rollback
 - Schema automatically created on scraper initialization
 
 SQLAlchemy models in `models.py`:
@@ -61,7 +61,7 @@ SQLAlchemy models in `models.py`:
 - `contractors` - Winning companies (unique constraint on official_name + country_code)
 - Reference tables for CPV, NUTS, countries, etc.
 
-Deduplication handled via unique constraints and INSERT ... ON CONFLICT DO NOTHING.
+Deduplication handled via unique constraints and `INSERT ... ON CONFLICT DO NOTHING` (works with both SQLite and PostgreSQL).
 
 ## Format Detection & Parser Selection
 The `ParserFactory` automatically detects and selects the appropriate parser:
@@ -92,10 +92,12 @@ The `ParserFactory` automatically detects and selects the appropriate parser:
 - `uv run tedawards scrape --date 2024-01-01`
 - `uv run tedawards backfill --start-date 2024-01-01 --end-date 2024-01-31`
 
-## Schema Management
-- SQLAlchemy automatically creates schema on first run
-- Database is a single SQLite file for easy portability
-- Schema is defined in `models.py` using SQLAlchemy's declarative base
+## Code Organization
+- `scraper.py` - Main scraper with database setup and session management
+- `models.py` - SQLAlchemy ORM models with schema definitions
+- `schema.py` - Pydantic models for data validation
+- `parsers/` - Format-specific XML parsers
+- `main.py` - CLI interface
 
 ## Environment Variables
 - `DB_PATH` - Path to SQLite database file (default: `./data/tedawards.db`)

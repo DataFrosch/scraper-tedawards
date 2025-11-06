@@ -1,11 +1,11 @@
 import click
 import logging
+import os
 from datetime import datetime, date
-from .config import config
 from .scraper import TedScraper
 
 logging.basicConfig(
-    level=getattr(logging, config.LOG_LEVEL),
+    level=getattr(logging, os.getenv('LOG_LEVEL', 'INFO')),
     format='%(asctime)s - %(levelname)s - %(message)s'
 )
 

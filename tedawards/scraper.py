@@ -1,26 +1,56 @@
 import logging
+import os
 import requests
 import tarfile
 from pathlib import Path
 from datetime import date, timedelta
 from typing import List
-from sqlalchemy import select
+from contextlib import contextmanager
+from dotenv import load_dotenv
+from sqlalchemy import create_engine, select
+from sqlalchemy.orm import sessionmaker, Session
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 
-from .config import config, get_session, engine
 from .parsers import ParserFactory
 from .models import Base, TEDDocument, ContractingBody, Contract, Award, Contractor
 from .schema import TedAwardDataModel, TedParserResultModel
 
+load_dotenv()
+
 logger = logging.getLogger(__name__)
+
+# Database setup
+DB_PATH = Path(os.getenv('DB_PATH', './data/tedawards.db'))
+DB_PATH.parent.mkdir(parents=True, exist_ok=True)
+
+engine = create_engine(
+    f"sqlite:///{DB_PATH}",
+    echo=False,
+    connect_args={"check_same_thread": False}
+)
+SessionLocal = sessionmaker(bind=engine, expire_on_commit=False)
+
+
+@contextmanager
+def get_session() -> Session:
+    """Get database session as context manager."""
+    session = SessionLocal()
+    try:
+        yield session
+        session.commit()
+    except Exception:
+        session.rollback()
+        raise
+    finally:
+        session.close()
 
 class TedScraper:
     """Main scraper for TED awards data."""
 
     def __init__(self):
         self.parser_factory = ParserFactory()
-        self.data_dir = config.TED_DATA_DIR
+        self.data_dir = Path(os.getenv('TED_DATA_DIR', './data'))
         self.data_dir.mkdir(exist_ok=True)
 
         # Ensure database schema exists
