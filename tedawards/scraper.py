@@ -89,7 +89,7 @@ def download_and_extract(package_url: str, target_date: date, data_dir: Path = D
 
     # Save and extract
     archive_path.write_bytes(response.content)
-    logger.info(f"Downloaded {len(response.content)} bytes")
+    logger.debug(f"Downloaded {len(response.content)} bytes")
 
     extract_dir.mkdir(exist_ok=True)
     try:
@@ -107,7 +107,6 @@ def download_and_extract(package_url: str, target_date: date, data_dir: Path = D
     zip_files = list(extract_dir.glob('**/*.zip')) + list(extract_dir.glob('**/*.ZIP'))
 
     all_files = xml_files + zip_files
-    logger.info(f"Extracted {len(xml_files)} XML files and {len(zip_files)} ZIP files")
     return all_files
 
 
@@ -134,11 +133,11 @@ def process_file(file_path: Path) -> TedParserResultModel:
         raise
 
 
-def save_award_batch(session: Session, award_batch: List[TedAwardDataModel]) -> int:
-    """Save batch of award data to database."""
+def save_awards(session: Session, awards: List[TedAwardDataModel]) -> int:
+    """Save award data to database."""
     count = 0
 
-    for award_data in award_batch:
+    for award_data in awards:
         try:
             # Insert document with INSERT OR IGNORE
             insert_func = sqlite_insert if engine.dialect.name == 'sqlite' else pg_insert
@@ -224,29 +223,20 @@ def scrape_date(target_date: date, data_dir: Path = DATA_DIR):
         logger.warning(f"No files found for {target_date}")
         return
 
-    # Process files (XML or ZIP) with batch processing
-    processed = 0
-    batch_size = 50  # Process files in batches to improve performance
+    # Process all files and collect awards
+    all_awards = []
+    for file_path in files:
+        parser_result = process_file(file_path)
+        if parser_result:
+            all_awards.extend(parser_result.awards)
 
-    with get_session() as session:
-        award_batch = []
-        total_files = len(files)
-
-        for i, file_path in enumerate(files):
-            parser_result = process_file(file_path)
-            if parser_result:
-                # Parser returns TedParserResultModel with list of TedAwardDataModel
-                award_batch.extend(parser_result.awards)
-
-            # Process batch when it reaches size limit or at end
-            if len(award_batch) >= batch_size or i == total_files - 1:
-                if award_batch:
-                    saved = save_award_batch(session, award_batch)
-                    processed += saved
-                    logger.info(f"Saved batch of {saved} awards ({i+1}/{total_files} files processed)")
-                    award_batch.clear()
-
-    logger.info(f"Processed {processed} award notices for {target_date}")
+    # Save all awards in a single transaction
+    if all_awards:
+        with get_session() as session:
+            saved = save_awards(session, all_awards)
+            logger.info(f"Processed {saved} award notices for {target_date}")
+    else:
+        logger.info(f"No award notices found for {target_date}")
 
 
 def backfill_range(start_date: date, end_date: date, data_dir: Path = DATA_DIR):

@@ -130,7 +130,7 @@ class TedMetaXmlParser(BaseParser):
                             award_records.append(award_data)
 
                 if award_records:
-                    logger.info(f"Found {len(award_records)} award records in {zip_path.name}")
+                    logger.debug(f"Found {len(award_records)} award records in {zip_path.name}")
                     return TedParserResultModel(awards=award_records)
                 else:
                     logger.debug(f"No award records found in {zip_path.name}")

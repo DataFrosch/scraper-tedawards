@@ -12,3 +12,4 @@ test_data
 .env
 /data
 /tedawards.db
+/tedawards.db-journal
