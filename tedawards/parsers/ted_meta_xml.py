@@ -25,7 +25,27 @@ class TedMetaXmlParser(BaseParser):
 
     def can_parse(self, file_path: Path) -> bool:
         """Check if this file uses TED META XML format."""
-        return FileDetector.is_ted_text_format(file_path) and '_meta_org.' in file_path.name.lower()
+        if not FileDetector.is_ted_text_format(file_path):
+            return False
+
+        # Check if the wrapper filename contains _meta_org or _meta
+        if '_meta_org.' in file_path.name.lower() or '_meta' in file_path.name.lower():
+            return True
+
+        # If not, check the contents (for test fixtures with simplified names)
+        import zipfile
+        try:
+            with zipfile.ZipFile(file_path, 'r') as zf:
+                names = zf.namelist()
+                if names:
+                    # Check if any file inside has META_ORG in the name
+                    for name in names:
+                        if 'META_ORG' in name.upper():
+                            return True
+        except (zipfile.BadZipFile, OSError):
+            pass
+
+        return False
 
     def get_format_name(self) -> str:
         """Return the format name for this parser."""

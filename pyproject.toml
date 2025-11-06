@@ -10,7 +10,8 @@ dependencies = [
     "sqlalchemy>=2.0",
     "python-dotenv",
     "click",
-    "pydantic"
+    "pydantic",
+    "pytest>=8.4.2",
 ]
 
 [project.scripts]

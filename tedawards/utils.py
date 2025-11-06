@@ -112,18 +112,21 @@ class FileDetector:
             tree = etree.parse(file_path)
             root = tree.getroot()
 
-            # Check for TED_EXPORT namespace
-            if root.tag != '{http://publications.europa.eu/TED_schema/Export}TED_EXPORT':
+            # Check for TED_EXPORT root element (namespace-agnostic check)
+            # Different R2.0.x versions use different namespaces:
+            # - R2.0.7/R2.0.8: http://publications.europa.eu/TED_schema/Export
+            # - R2.0.9: http://publications.europa.eu/resource/schema/ted/R2.0.9/publication
+            if not root.tag.endswith('}TED_EXPORT') and root.tag != 'TED_EXPORT':
                 return False
 
-            # Check if it's document type 7 (Contract award)
-            doc_type = root.find('.//{http://publications.europa.eu/TED_schema/Export}TD_DOCUMENT_TYPE[@CODE="7"]')
-            if doc_type is None:
+            # Check if it's document type 7 (Contract award) - use namespace-agnostic xpath
+            doc_type = root.xpath('.//*[local-name()="TD_DOCUMENT_TYPE"][@CODE="7"]')
+            if not doc_type:
                 return False
 
             # Must have either CONTRACT_AWARD (R2.0.7/R2.0.8) or F03_2014 (R2.0.9) form
-            has_contract_award = root.find('.//{http://publications.europa.eu/TED_schema/Export}CONTRACT_AWARD') is not None
-            has_f03_2014 = root.find('.//{http://publications.europa.eu/TED_schema/Export}F03_2014') is not None
+            has_contract_award = len(root.xpath('.//*[local-name()="CONTRACT_AWARD"]')) > 0
+            has_f03_2014 = len(root.xpath('.//*[local-name()="F03_2014"]')) > 0
 
             return has_contract_award or has_f03_2014
 
@@ -147,6 +150,8 @@ class FileDetector:
     def is_ted_text_format(file_path: Path) -> bool:
         """Check if this file uses TED text format (ZIP containing text files)."""
         try:
+            import zipfile
+
             # Check for both uppercase and lowercase zip extensions
             if not (file_path.name.upper().endswith('.ZIP')):
                 return False
@@ -156,8 +161,25 @@ class FileDetector:
             # - XX_YYYYMMDD_NNN_UTF8_ORG.ZIP (e.g., EN_20070103_001_UTF8_ORG.ZIP)
             # - xx_yyyymmdd_nnn_utf8_org.zip (e.g., en_20080103_001_utf8_org.zip)
             # - xx_yyyymmdd_nnn_meta_org.zip (e.g., en_20080103_001_meta_org.zip) - PREFERRED
-            pattern = r'^[a-zA-Z]{2}_\d{8}_\d{3}_(utf8|meta|iso)_org\.(zip|ZIP)$'
-            return bool(re.match(pattern, file_path.name, re.IGNORECASE))
+            pattern = r'^[a-zA-Z]{2}_\d{8}_\d+_(utf8|meta|iso)_org'
+
+            # First check the wrapper filename
+            if re.match(pattern, file_path.name, re.IGNORECASE):
+                return True
+
+            # If wrapper doesn't match, check the contents (for test fixtures with simplified names)
+            try:
+                with zipfile.ZipFile(file_path, 'r') as zf:
+                    names = zf.namelist()
+                    if names:
+                        # Check if any file inside matches the pattern
+                        for name in names:
+                            if re.match(pattern, name, re.IGNORECASE):
+                                return True
+            except (zipfile.BadZipFile, OSError):
+                pass
+
+            return False
         except Exception as e:
             logger.debug(f"Error checking if {file_path.name} is TED text format: {e}")
             return False

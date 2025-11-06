@@ -111,8 +111,9 @@ class TedV2Parser(BaseParser):
 
     def _get_original_language(self, root) -> Optional[str]:
         """Get the original language of the document."""
-        lang_orig_elem = root.find('.//{http://publications.europa.eu/TED_schema/Export}LG_ORIG')
-        return lang_orig_elem.text.strip() if lang_orig_elem is not None else None
+        # Use namespace-agnostic xpath since R2.0.9 uses different namespace
+        lang_orig_elems = root.xpath('.//*[local-name()="LG_ORIG"]/text()')
+        return lang_orig_elems[0].strip() if lang_orig_elems else None
 
     def _is_original_language_version(self, root, original_lang: str) -> bool:
         """Check if this XML document represents the original language version."""
@@ -120,12 +121,11 @@ class TedV2Parser(BaseParser):
             # Fail loud - original language is required for deduplication
             raise ValueError(f"No original language (LG_ORIG) found in document - cannot determine if this is original or translation")
 
-        # Check the form language
-        form_elem = root.find('.//{http://publications.europa.eu/TED_schema/Export}CONTRACT_AWARD')
-        if form_elem is None:
-            form_elem = root.find('.//{http://publications.europa.eu/TED_schema/Export}F03_2014')
+        # Check the form language - use namespace-agnostic xpath
+        form_elems = root.xpath('.//*[local-name()="CONTRACT_AWARD" or local-name()="F03_2014"]')
 
-        if form_elem is not None:
+        if form_elems:
+            form_elem = form_elems[0]
             form_lang = form_elem.get('LG')
             form_category = form_elem.get('CATEGORY', '').upper()
 
