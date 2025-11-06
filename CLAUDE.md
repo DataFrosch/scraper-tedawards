@@ -12,9 +12,10 @@ TED Awards scraper for analyzing EU procurement contract awards. Focus is **only
 1. **Award-only focus**: Filter XML parsing to only process contract award notices
 2. **Environment configuration**: All DB settings via env vars (.env for dev)
 3. **Daily incremental**: Fetch daily archives we don't have yet
-4. **Modular design**: Archive downloader, XML parser, DB handler, scheduler
-5. **No fallbacks or defaults**: Only extract data directly from XML files - no defaults, no fallbacks, no default records. Missing data should be None in Python and NULL in database. If we cannot extract required data, skip the record entirely rather than creating defaults
-6. **Fail-loud error handling**: Errors should always bubble up and cause loud failures. Never silently ignore errors or continue processing with partial data. Use proper exception handling but let errors propagate to calling code for proper error reporting and debugging. This includes:
+4. **Direct SQLAlchemy usage**: Use SQLAlchemy ORM directly in scraper - no abstraction layers or wrappers
+5. **Database deduplication**: Use INSERT ... ON CONFLICT DO NOTHING for documents and contractors to handle duplicates
+6. **No fallbacks or defaults**: Only extract data directly from XML files - no defaults, no fallbacks, no default records. Missing data should be None in Python and NULL in database. If we cannot extract required data, skip the record entirely rather than creating defaults
+7. **Fail-loud error handling**: Errors should always bubble up and cause loud failures. Never silently ignore errors or continue processing with partial data. Use proper exception handling but let errors propagate to calling code for proper error reporting and debugging. This includes:
    - **Never assume defaults**: If required data is missing (like original language for deduplication), raise an exception rather than assuming a default value
    - **Never gracefully degrade**: If data integrity cannot be guaranteed, fail immediately rather than producing potentially incorrect results
    - **Always validate critical assumptions**: If business logic depends on certain data being present, validate it exists and fail if it doesn't
@@ -45,17 +46,22 @@ The scraper supports multiple TED document formats across different time periods
    - Namespace: `urn:oasis:names:specification:ubl:schema:xsd:ContractAwardNotice-2`
    - Parser: `EFormsUBLParser` - handles new EU eForms standard
 
-## Database Schema
-Comprehensive SQLAlchemy models in `models.py` with tables:
-- `ted_documents` - Main document metadata
+## Database Architecture
+Database connection and sessions managed in `config.py`:
+- Engine and session factory created at module level
+- `get_session()` context manager for transaction management
+- Schema automatically created on scraper initialization
+
+SQLAlchemy models in `models.py`:
+- `ted_documents` - Main document metadata (PK: doc_id)
 - `contracting_bodies` - Purchasing organizations
 - `contracts` - Procurement items
 - `lots` - Contract subdivisions
 - `awards` - Award decisions
-- `contractors` - Winning companies
-- Plus reference tables for CPV, NUTS, countries, etc.
+- `contractors` - Winning companies (unique constraint on official_name + country_code)
+- Reference tables for CPV, NUTS, countries, etc.
 
-Schema is automatically created by SQLAlchemy on first run.
+Deduplication handled via unique constraints and INSERT ... ON CONFLICT DO NOTHING.
 
 ## Format Detection & Parser Selection
 The `ParserFactory` automatically detects and selects the appropriate parser:
