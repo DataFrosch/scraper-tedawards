@@ -1,7 +1,7 @@
 # TED Awards Scraper - Claude Context
 
 ## Project Overview
-TED Awards scraper for analyzing EU procurement contract awards. Focus is **only on award notices** (document type 7 - "Contract award notice").
+TED Awards scraper for analyzing EU procurement contract awards from **2008 onwards**. Processes XML-formatted TED data, focusing **only on award notices** (document type 7 - "Contract award notice").
 
 ## Tech Stack & Requirements
 - **Development**: uv for dependency management
@@ -22,26 +22,30 @@ TED Awards scraper for analyzing EU procurement contract awards. Focus is **only
 
 ## Data Source Details
 - **URL Pattern**: `https://ted.europa.eu/packages/daily/{yyyynnnnn}` (e.g., 202400001)
-- **File Format**: `.tar.gz` archives containing various formats by year
+- **File Format**: `.tar.gz` archives containing XML documents
+- **Coverage**: XML data from **January 2008 onwards** (earlier data uses non-XML formats not supported)
 - **Rate Limits**: 3 concurrent downloads, 700 requests/min, 600 downloads per 6min/IP
 
-### Supported File Formats
-The scraper supports multiple TED document formats across different time periods:
+### Supported XML Formats
+The scraper supports multiple TED XML document formats:
 
-1. **TED Text Format (2007 and earlier)**
-   - Format: ZIP files containing structured text files with field-based format
-   - Content: Multiple ZIP files per language (meta and utf8 variants)
-   - Parser: `TedMetaXmlParser` - handles legacy text format with structured fields
+1. **TED META XML (2008-2010)**
+   - Format: ZIP files containing structured XML text data
+   - Content: Multiple ZIP files per language (meta_org.zip variants)
+   - Parser: `TedMetaXmlParser` - handles early XML format with structured fields
+   - First available: **2008-01-03**
+   - Coverage: 2008-2010 (overlaps with early TED 2.0 R2.0.7 format in 2011-2013)
 
-2. **TED 2.0 (2008-2023)** - **Unified Parser**
-   - **R2.0.7 (2008-2010)**: XML with CONTRACT_AWARD forms, early structure
-   - **R2.0.8 (2011-2013)**: XML with CONTRACT_AWARD forms, enhanced structure
-   - **R2.0.9 (2014-2023)**: XML with F03_2014 forms, modern structure
+2. **TED 2.0 XML (2011-2024)** - **Unified Parser**
+   - **R2.0.7 (2011-2013)**: XML with CONTRACT_AWARD forms, early structure
+   - **R2.0.8 (2014-2015)**: XML with CONTRACT_AWARD forms, enhanced structure
+   - **R2.0.9 (2014-2024)**: XML with F03_2014 forms, modern structure
    - Format: XML with TED_EXPORT namespace
    - File naming: `{6-8digits}_{year}.xml` (e.g., 000248_2012.xml)
    - Parser: `TedV2Parser` - unified parser handling all TED 2.0 variants with automatic format detection
+   - First available: **2011-01-04**
 
-3. **eForms UBL ContractAwardNotice (2024+)**
+3. **eForms UBL ContractAwardNotice (2025+)**
    - Format: UBL-based XML with ContractAwardNotice schema
    - Namespace: `urn:oasis:names:specification:ubl:schema:xsd:ContractAwardNotice-2`
    - Parser: `EFormsUBLParser` - handles new EU eForms standard
@@ -71,20 +75,20 @@ The `ParserFactory` automatically detects and selects the appropriate parser:
 - **TED 2.0 Auto-Detection**: The unified TedV2Parser automatically detects R2.0.7, R2.0.8, or R2.0.9 variants
 
 ### Archive Structure
-- **Modern (2014+)**: `.tar.gz` containing individual XML files
-- **Legacy Text (2007-2008)**: `.tar.gz` containing ZIP files with structured text data
+- **TED 2.0 (2011+)**: `.tar.gz` containing individual `.xml` files with TED_EXPORT namespace
+- **TED META XML (2008-2010)**: `.tar.gz` containing ZIP files (`*_meta_org.zip`) with structured XML data
 
-## Key Data Structures by Format
+## Key XML Data Structures
 
-### TED R2.0.9 (F03_2014 Award Notice)
+### TED 2.0 R2.0.9 (F03_2014 Award Notice)
 - `TED_EXPORT/CODED_DATA_SECTION` - Document metadata
 - `TED_EXPORT/FORM_SECTION/F03_2014` - Award notice data
   - `CONTRACTING_BODY` - Buyer info
   - `OBJECT_CONTRACT` - Contract details
   - `AWARD_CONTRACT` - Winner and value info
 
-### TED Text Format (Legacy)
-- Field-based format with codes like `TD:`, `PD:`, `AU:`, `TI:`, `TX:`
+### TED META XML Format
+- ZIP-based XML format with structured fields
 - `TD: 7 - Contract award` identifies award notices
 - `ND` field provides universal document identifier across languages
 

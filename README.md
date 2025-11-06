@@ -1,10 +1,14 @@
 # TED Awards Scraper
 
-A Python scraper for EU procurement contract award notices from [TED Europa](https://ted.europa.eu/).
+A Python scraper for EU procurement contract award notices from [TED Europa](https://ted.europa.eu/). Processes XML-formatted TED data from **2008 onwards**.
 
 ## Features
 
-- Scrapes daily TED award notice archives (document type 7 only)
+- Scrapes daily TED award notice archives from **January 2008 onwards** (document type 7 only)
+- Supports multiple XML formats:
+  - TED META XML (2008-2010) - Early XML format
+  - TED 2.0 R2.0.7-R2.0.9 (2011-2024) - Standard TED XML formats
+  - eForms UBL (2025+) - New EU eForms standard
 - Comprehensive PostgreSQL database schema for procurement data
 - Processes 300-900+ award notices per day (varies by TED archive content)
 - Extracts thousands of awards and contractors from daily archives
@@ -24,7 +28,7 @@ A Python scraper for EU procurement contract award notices from [TED Europa](htt
 
 2. **Scrape data**:
    ```bash
-   # Scrape specific date
+   # Scrape specific date (2008-01-03 onwards)
    uv run tedawards scrape --date 2024-01-01
 
    # Backfill date range
@@ -60,15 +64,20 @@ Key tables:
 
 ## Architecture
 
-- **Parser**: Extracts data from TED XML R2.0.9 format
-- **Database**: PostgreSQL with comprehensive procurement schema
-- **Scraper**: Downloads and processes daily TED archives
+- **Parsers**: Automatically detects and processes multiple XML formats
+  - `TedMetaXmlParser` - TED META XML format (2008-2010)
+  - `TedV2Parser` - TED 2.0 R2.0.7/R2.0.8/R2.0.9 formats (2011-2024)
+  - `EFormsUBLParser` - eForms UBL ContractAwardNotice (2025+)
+- **Database**: PostgreSQL with comprehensive procurement schema (SQLite also supported)
+- **Scraper**: Downloads and processes daily TED archives from 2008 onwards
 - **CLI**: Simple commands for scraping and backfilling
 
-## Data Quality
+## Data Coverage
 
-- ✅ 93.3% of awards include conclusion dates
-- ✅ All key procurement data extracted accurately
-- ✅ Handles multiple date formats and XML variations
-- ✅ Consistent processing across different archive dates
-- ✅ Filters TED R2.0.9 format (ignores newer eForms format)
+- **Time Range**: January 2008 to present (17+ years of XML-formatted data)
+- **Data Quality**:
+  - ✅ 93.3% of awards include conclusion dates
+  - ✅ All key procurement data extracted accurately
+  - ✅ Handles multiple XML formats and variations
+  - ✅ Consistent processing across different archive dates
+- **Format Support**: All major TED XML formats (META, R2.0.7-R2.0.9, eForms UBL)
