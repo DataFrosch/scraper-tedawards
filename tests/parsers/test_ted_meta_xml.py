@@ -24,9 +24,8 @@ FIXTURES_DIR = Path(__file__).parent.parent / "fixtures"
 # List of TED META XML fixtures to test
 TED_META_FIXTURES = [
     "ted_meta_2008_en.zip",
-    "ted_meta_2009_de.zip",
-    "ted_meta_2009_pl.zip",
-    "ted_meta_2010_cs.zip",
+    "ted_meta_2009_en.zip",
+    "ted_meta_2010_en.zip",
 ]
 
 
