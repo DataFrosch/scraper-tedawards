@@ -5,8 +5,12 @@ Handles collection and batch insertion of reference data like countries, languag
 
 import logging
 from typing import Dict, List, Set
-from psycopg2.extras import execute_values
+
+from sqlalchemy.orm import Session
+from sqlalchemy.dialects.sqlite import insert as sqlite_insert
+
 from .schema import TedAwardDataModel
+from .models import Country, Language, Currency, CPVCode, NUTSCode
 
 logger = logging.getLogger(__name__)
 
@@ -67,67 +71,54 @@ class ReferenceDataManager:
         if data.contract.main_cpv_code:
             self._cache['cpv_codes'].add(data.contract.main_cpv_code)
 
-    def flush_to_database(self, cursor):
-        """Batch insert all collected reference data."""
+    def flush_to_database(self, session: Session):
+        """Batch insert all collected reference data using SQLAlchemy."""
         # Languages
         if self._cache['languages']:
-            # Remove empty strings to avoid inserting empty language codes
             valid_languages = {lang for lang in self._cache['languages'] if lang}
             if valid_languages:
-                lang_data = [(lang, lang) for lang in valid_languages]
-                execute_values(
-                    cursor,
-                    "INSERT INTO languages (code, name) VALUES %s ON CONFLICT (code) DO NOTHING",
-                    lang_data
-                )
+                for lang in valid_languages:
+                    stmt = sqlite_insert(Language).values(code=lang, name=lang)
+                    stmt = stmt.on_conflict_do_nothing(index_elements=['code'])
+                    session.execute(stmt)
 
         # Countries
         if self._cache['countries']:
-            # Remove empty strings to avoid inserting empty country codes
             valid_countries = {country for country in self._cache['countries'] if country}
             if valid_countries:
-                country_data = [(country, country) for country in valid_countries]
-                execute_values(
-                    cursor,
-                    "INSERT INTO countries (code, name) VALUES %s ON CONFLICT (code) DO NOTHING",
-                    country_data
-                )
+                for country in valid_countries:
+                    stmt = sqlite_insert(Country).values(code=country, name=country)
+                    stmt = stmt.on_conflict_do_nothing(index_elements=['code'])
+                    session.execute(stmt)
 
         # NUTS codes
         if self._cache['nuts_codes']:
-            # Remove empty strings to avoid inserting empty NUTS codes
             valid_nuts = {nuts for nuts in self._cache['nuts_codes'] if nuts}
             if valid_nuts:
-                nuts_data = [(nuts, nuts, len(nuts)) for nuts in valid_nuts]
-                execute_values(
-                    cursor,
-                    "INSERT INTO nuts_codes (code, name, level) VALUES %s ON CONFLICT (code) DO NOTHING",
-                    nuts_data
-                )
+                for nuts in valid_nuts:
+                    stmt = sqlite_insert(NUTSCode).values(code=nuts, name=nuts, level=len(nuts))
+                    stmt = stmt.on_conflict_do_nothing(index_elements=['code'])
+                    session.execute(stmt)
 
         # Currencies
         if self._cache['currencies']:
-            # Remove empty strings to avoid inserting empty currency codes
             valid_currencies = {currency for currency in self._cache['currencies'] if currency}
             if valid_currencies:
-                currency_data = [(currency, currency) for currency in valid_currencies]
-                execute_values(
-                    cursor,
-                    "INSERT INTO currencies (code, name) VALUES %s ON CONFLICT (code) DO NOTHING",
-                    currency_data
-                )
+                for currency in valid_currencies:
+                    stmt = sqlite_insert(Currency).values(code=currency, name=currency)
+                    stmt = stmt.on_conflict_do_nothing(index_elements=['code'])
+                    session.execute(stmt)
 
         # CPV codes
         if self._cache['cpv_codes']:
-            # Remove empty strings to avoid inserting empty CPV codes
             valid_cpvs = {cpv for cpv in self._cache['cpv_codes'] if cpv}
             if valid_cpvs:
-                cpv_data = [(cpv, cpv) for cpv in valid_cpvs]
-                execute_values(
-                    cursor,
-                    "INSERT INTO cpv_codes (code, description) VALUES %s ON CONFLICT (code) DO NOTHING",
-                    cpv_data
-                )
+                for cpv in valid_cpvs:
+                    stmt = sqlite_insert(CPVCode).values(code=cpv, description=cpv)
+                    stmt = stmt.on_conflict_do_nothing(index_elements=['code'])
+                    session.execute(stmt)
+
+        session.flush()
 
     def clear_cache(self):
         """Clear the reference data cache."""

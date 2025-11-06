@@ -1,42 +1,66 @@
+"""
+Database management using SQLAlchemy ORM.
+Handles database operations for TED awards data.
+"""
+
 import logging
-import psycopg2
-from psycopg2.extras import RealDictCursor, execute_values
 from pathlib import Path
-from typing import Dict, List
+from typing import List, Optional
+
+from sqlalchemy import create_engine, select
+from sqlalchemy.orm import Session, sessionmaker
+
 from .config import config
+from .models import (
+    Base, TEDDocument, ContractingBody, Contract, Lot, Award, Contractor,
+    Country, Language, Currency, CPVCode, NUTSCode,
+    award_contractors, contract_cpv_codes, contract_nuts_codes
+)
 from .schema import TedAwardDataModel
 from .reference_data import ReferenceDataManager
 
 logger = logging.getLogger(__name__)
 
+
 class DatabaseManager:
-    """Handle database operations for TED awards data."""
+    """Handle database operations for TED awards data using SQLAlchemy."""
 
     def __init__(self):
-        self.conn = None
+        self.engine = None
+        self.SessionLocal = None
+        self.session: Optional[Session] = None
         self.reference_manager = ReferenceDataManager()
 
     def connect(self):
-        """Connect to PostgreSQL database."""
+        """Connect to SQLite database."""
         try:
-            self.conn = psycopg2.connect(
-                host=config.DB_HOST,
-                port=config.DB_PORT,
-                database=config.DB_NAME,
-                user=config.DB_USER,
-                password=config.DB_PASSWORD,
-                cursor_factory=RealDictCursor
+            db_path = config.DB_PATH
+            # Ensure parent directory exists
+            db_path.parent.mkdir(parents=True, exist_ok=True)
+
+            # Create SQLite database URL
+            database_url = f"sqlite:///{db_path}"
+
+            self.engine = create_engine(
+                database_url,
+                echo=False,  # Set to True for SQL debugging
+                connect_args={"check_same_thread": False}  # Needed for SQLite
             )
-            logger.info("Connected to database")
+
+            self.SessionLocal = sessionmaker(bind=self.engine)
+            self.session = self.SessionLocal()
+
+            logger.info(f"Connected to database: {db_path}")
             self._ensure_schema_exists()
+
         except Exception as e:
             logger.error(f"Database connection failed: {e}")
             raise
 
     def close(self):
         """Close database connection."""
-        if self.conn:
-            self.conn.close()
+        if self.session:
+            self.session.close()
             logger.info("Database connection closed")
 
     def __enter__(self):
@@ -46,147 +70,127 @@ class DatabaseManager:
     def __exit__(self, exc_type, exc_val, exc_tb):
         self.close()
 
+    def _ensure_schema_exists(self):
+        """Ensure database schema exists by creating all tables."""
+        try:
+            # Create all tables
+            Base.metadata.create_all(self.engine)
+            logger.info("Database schema created/verified successfully")
+        except Exception as e:
+            logger.error(f"Error creating database schema: {e}")
+            raise
+
     def document_exists(self, doc_id: str) -> bool:
         """Check if document already exists in database."""
-        with self.conn.cursor() as cur:
-            cur.execute("SELECT 1 FROM ted_documents WHERE doc_id = %s", (doc_id,))
-            return cur.fetchone() is not None
+        result = self.session.execute(
+            select(TEDDocument).where(TEDDocument.doc_id == doc_id)
+        ).first()
+        return result is not None
 
     def save_award_data(self, data: TedAwardDataModel):
         """Save parsed award data to database."""
         try:
-            with self.conn.cursor() as cur:
-                # Collect and flush reference data
-                self.reference_manager.collect_from_award_data(data)
-                self.reference_manager.flush_to_database(cur)
+            # Collect and flush reference data
+            self.reference_manager.collect_from_award_data(data)
+            self.reference_manager.flush_to_database(self.session)
 
-                # Save document
-                self._insert_document(cur, data.document.dict())
+            # Save document
+            doc = self._insert_document(data.document.dict())
 
-                # Save contracting body
-                cb_id = self._insert_contracting_body(cur, data.document.doc_id, data.contracting_body.dict())
+            # Save contracting body
+            cb = self._insert_contracting_body(data.document.doc_id, data.contracting_body.dict())
 
-                # Save contract
-                contract_id = self._insert_contract(cur, data.document.doc_id, cb_id, data.contract.dict())
+            # Save contract
+            contract = self._insert_contract(data.document.doc_id, cb.id, data.contract.dict())
 
-                # Save awards
-                for award_data in data.awards:
-                    award_id = self._insert_award(cur, contract_id, award_data.dict())
+            # Save awards
+            for award_data in data.awards:
+                award = self._insert_award(contract.id, award_data.dict())
 
-                    for contractor_data in award_data.contractors:
-                        contractor_id = self._insert_contractor(cur, contractor_data.dict())
-                        self._link_award_contractor(cur, award_id, contractor_id)
+                for contractor_data in award_data.contractors:
+                    contractor = self._insert_contractor(contractor_data.dict())
+                    self._link_award_contractor(award, contractor)
 
-            self.conn.commit()
+            self.session.commit()
             logger.info(f"Saved award data for document {data.document.doc_id}")
 
         except Exception as e:
-            self.conn.rollback()
+            self.session.rollback()
             logger.error(f"Error saving award data: {e}")
             raise
 
-    def _insert_document(self, cur, data):
+    def _insert_document(self, data: dict) -> TEDDocument:
         """Insert document record."""
-        sql = """
-        INSERT INTO ted_documents (
-            doc_id, edition, version, reception_id, deletion_date, form_language,
-            official_journal_ref, publication_date, dispatch_date, original_language, source_country
-        ) VALUES (%(doc_id)s, %(edition)s, %(version)s, %(reception_id)s, %(deletion_date)s,
-                  %(form_language)s, %(official_journal_ref)s, %(publication_date)s,
-                  %(dispatch_date)s, %(original_language)s, %(source_country)s)
-        ON CONFLICT (doc_id) DO NOTHING
-        """
-        cur.execute(sql, data)
+        # Check if document already exists
+        existing = self.session.execute(
+            select(TEDDocument).where(TEDDocument.doc_id == data['doc_id'])
+        ).scalar_one_or_none()
 
-    def _insert_contracting_body(self, cur, doc_id, data):
-        """Insert contracting body and return ID."""
-        data['ted_doc_id'] = doc_id
-        sql = """
-        INSERT INTO contracting_bodies (
-            ted_doc_id, official_name, address, town, postal_code, country_code,
-            nuts_code, contact_point, phone, email, fax, url_general, url_buyer,
-            authority_type_code, main_activity_code
-        ) VALUES (%(ted_doc_id)s, %(official_name)s, %(address)s, %(town)s, %(postal_code)s,
-                  %(country_code)s, %(nuts_code)s, %(contact_point)s, %(phone)s,
-                  %(email)s, %(fax)s, %(url_general)s, %(url_buyer)s,
-                  %(authority_type_code)s, %(main_activity_code)s)
-        RETURNING id
-        """
-        cur.execute(sql, data)
-        return cur.fetchone()['id']
-
-    def _insert_contract(self, cur, doc_id, cb_id, data):
-        """Insert contract and return ID."""
-        data.update({'ted_doc_id': doc_id, 'contracting_body_id': cb_id})
-        sql = """
-        INSERT INTO contracts (
-            ted_doc_id, contracting_body_id, title, reference_number, short_description,
-            main_cpv_code, contract_nature_code, total_value, total_value_currency,
-            procedure_type_code, award_criteria_code
-        ) VALUES (%(ted_doc_id)s, %(contracting_body_id)s, %(title)s, %(reference_number)s,
-                  %(short_description)s, %(main_cpv_code)s, %(contract_nature_code)s,
-                  %(total_value)s, %(total_value_currency)s, %(procedure_type_code)s,
-                  %(award_criteria_code)s)
-        RETURNING id
-        """
-        cur.execute(sql, data)
-        return cur.fetchone()['id']
-
-    def _insert_award(self, cur, contract_id, data):
-        """Insert award and return ID."""
-        data['contract_id'] = contract_id
-        sql = """
-        INSERT INTO awards (
-            contract_id, award_title, conclusion_date, contract_number,
-            tenders_received, tenders_received_sme, tenders_received_other_eu,
-            tenders_received_non_eu, tenders_received_electronic,
-            awarded_value, awarded_value_currency,
-            subcontracted_value, subcontracted_value_currency, subcontracting_description
-        ) VALUES (%(contract_id)s, %(award_title)s, %(conclusion_date)s, %(contract_number)s,
-                  %(tenders_received)s, %(tenders_received_sme)s, %(tenders_received_other_eu)s,
-                  %(tenders_received_non_eu)s, %(tenders_received_electronic)s,
-                  %(awarded_value)s, %(awarded_value_currency)s,
-                  %(subcontracted_value)s, %(subcontracted_value_currency)s,
-                  %(subcontracting_description)s)
-        RETURNING id
-        """
-        cur.execute(sql, data)
-        return cur.fetchone()['id']
-
-    def _insert_contractor(self, cur, data):
-        """Insert contractor and return ID, or return existing ID."""
-        # First try to find existing contractor by name and country
-        cur.execute("""
-            SELECT id FROM contractors
-            WHERE official_name = %(official_name)s AND country_code = %(country_code)s
-        """, data)
-
-        existing = cur.fetchone()
         if existing:
-            return existing['id']
+            return existing
+
+        doc = TEDDocument(**data)
+        self.session.add(doc)
+        self.session.flush()  # Flush to get the ID
+        return doc
+
+    def _insert_contracting_body(self, doc_id: str, data: dict) -> ContractingBody:
+        """Insert contracting body and return object."""
+        data['ted_doc_id'] = doc_id
+        cb = ContractingBody(**data)
+        self.session.add(cb)
+        self.session.flush()
+        return cb
+
+    def _insert_contract(self, doc_id: str, cb_id: int, data: dict) -> Contract:
+        """Insert contract and return object."""
+        data['ted_doc_id'] = doc_id
+        data['contracting_body_id'] = cb_id
+
+        # Remove fields that don't exist in Contract model but might be in pydantic model
+        data.pop('performance_nuts_code', None)
+
+        contract = Contract(**data)
+        self.session.add(contract)
+        self.session.flush()
+        return contract
+
+    def _insert_award(self, contract_id: int, data: dict) -> Award:
+        """Insert award and return object."""
+        # Remove contractors from data as they're handled separately
+        contractors_data = data.pop('contractors', [])
+
+        data['contract_id'] = contract_id
+        award = Award(**data)
+        self.session.add(award)
+        self.session.flush()
+        return award
+
+    def _insert_contractor(self, data: dict) -> Contractor:
+        """Insert contractor and return object, or return existing."""
+        # First try to find existing contractor by name and country
+        existing = self.session.execute(
+            select(Contractor).where(
+                Contractor.official_name == data['official_name'],
+                Contractor.country_code == data.get('country_code')
+            )
+        ).scalar_one_or_none()
+
+        if existing:
+            return existing
 
         # Insert new contractor
-        sql = """
-        INSERT INTO contractors (
-            official_name, address, town, postal_code, country_code, nuts_code,
-            phone, email, fax, url, is_sme
-        ) VALUES (%(official_name)s, %(address)s, %(town)s, %(postal_code)s,
-                  %(country_code)s, %(nuts_code)s, %(phone)s, %(email)s,
-                  %(fax)s, %(url)s, %(is_sme)s)
-        RETURNING id
-        """
-        cur.execute(sql, data)
-        return cur.fetchone()['id']
+        contractor = Contractor(**data)
+        self.session.add(contractor)
+        self.session.flush()
+        return contractor
 
-    def _link_award_contractor(self, cur, award_id, contractor_id):
+    def _link_award_contractor(self, award: Award, contractor: Contractor):
         """Link award to contractor."""
-        sql = """
-        INSERT INTO award_contractors (award_id, contractor_id)
-        VALUES (%s, %s)
-        ON CONFLICT (award_id, contractor_id) DO NOTHING
-        """
-        cur.execute(sql, (award_id, contractor_id))
-
+        # Check if relationship already exists
+        if contractor not in award.contractors:
+            award.contractors.append(contractor)
+            self.session.flush()
 
     def save_award_data_batch(self, awards: List[TedAwardDataModel]):
         """Save multiple award data records efficiently in batch."""
@@ -194,74 +198,33 @@ class DatabaseManager:
             return
 
         try:
-            with self.conn.cursor() as cur:
-                # Collect and flush reference data
-                self.reference_manager.collect_from_batch(awards)
-                self.reference_manager.flush_to_database(cur)
+            # Collect and flush reference data for entire batch
+            self.reference_manager.collect_from_batch(awards)
+            self.reference_manager.flush_to_database(self.session)
 
-                # Process each award
-                for award in awards:
-                    # Save document
-                    self._insert_document(cur, award.document.dict())
+            # Process each award
+            for award_data in awards:
+                # Save document
+                doc = self._insert_document(award_data.document.dict())
 
-                    # Save contracting body
-                    cb_id = self._insert_contracting_body(cur, award.document.doc_id, award.contracting_body.dict())
+                # Save contracting body
+                cb = self._insert_contracting_body(award_data.document.doc_id, award_data.contracting_body.dict())
 
-                    # Save contract
-                    contract_id = self._insert_contract(cur, award.document.doc_id, cb_id, award.contract.dict())
+                # Save contract
+                contract = self._insert_contract(award_data.document.doc_id, cb.id, award_data.contract.dict())
 
-                    # Save awards
-                    for award_data in award.awards:
-                        award_id = self._insert_award(cur, contract_id, award_data.dict())
+                # Save awards
+                for award_item in award_data.awards:
+                    award = self._insert_award(contract.id, award_item.dict())
 
-                        for contractor_data in award_data.contractors:
-                            contractor_id = self._insert_contractor(cur, contractor_data.dict())
-                            self._link_award_contractor(cur, award_id, contractor_id)
+                    for contractor_data in award_item.contractors:
+                        contractor = self._insert_contractor(contractor_data.dict())
+                        self._link_award_contractor(award, contractor)
 
-            self.conn.commit()
+            self.session.commit()
             logger.info(f"Saved batch of {len(awards)} award documents")
 
         except Exception as e:
-            self.conn.rollback()
+            self.session.rollback()
             logger.error(f"Error saving award data batch: {e}")
-            raise
-
-    def _ensure_schema_exists(self):
-        """Ensure database schema exists by running schema.sql if needed."""
-        try:
-            # Check if main table exists
-            with self.conn.cursor() as cur:
-                cur.execute("""
-                    SELECT EXISTS (
-                        SELECT FROM information_schema.tables
-                        WHERE table_schema = 'public'
-                        AND table_name = 'ted_documents'
-                    );
-                """)
-
-                result = cur.fetchone()
-                logger.debug(f"Schema check result: {result}")
-                if result and result['exists']:
-                    logger.debug("Database schema already exists")
-                    return
-
-            # Schema doesn't exist, create it
-            logger.info("Creating database schema")
-            schema_path = Path(__file__).parent.parent / 'schema.sql'
-
-            if not schema_path.exists():
-                raise FileNotFoundError(f"Schema file not found: {schema_path}")
-
-            with open(schema_path, 'r') as f:
-                schema_sql = f.read()
-
-            with self.conn.cursor() as cur:
-                cur.execute(schema_sql)
-
-            self.conn.commit()
-            logger.info("Database schema created successfully")
-
-        except Exception as e:
-            self.conn.rollback()
-            logger.error(f"Error creating database schema: {e}")
             raise

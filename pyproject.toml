@@ -7,7 +7,7 @@ requires-python = ">=3.12"
 dependencies = [
     "requests",
     "lxml",
-    "psycopg2-binary",
+    "sqlalchemy>=2.0",
     "python-dotenv",
     "click",
     "pydantic"

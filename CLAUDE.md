@@ -4,10 +4,9 @@
 TED Awards scraper for analyzing EU procurement contract awards. Focus is **only on award notices** (document type 7 - "Contract award notice").
 
 ## Tech Stack & Requirements
-- **Development**: uv for dependency management, docker-compose for database
-- **Production**: Docker container
-- **Database**: PostgreSQL with environment-based configuration
-- **Python**: >=3.12 with lxml, requests, psycopg2, pydantic, click
+- **Development**: uv for dependency management
+- **Database**: SQLite with SQLAlchemy ORM (easy PostgreSQL migration later)
+- **Python**: >=3.12 with lxml, requests, sqlalchemy, pydantic, click
 
 ## Key Architecture Decisions
 1. **Award-only focus**: Filter XML parsing to only process contract award notices
@@ -47,7 +46,7 @@ The scraper supports multiple TED document formats across different time periods
    - Parser: `EFormsUBLParser` - handles new EU eForms standard
 
 ## Database Schema
-Comprehensive schema in `schema.sql` with tables:
+Comprehensive SQLAlchemy models in `models.py` with tables:
 - `ted_documents` - Main document metadata
 - `contracting_bodies` - Purchasing organizations
 - `contracts` - Procurement items
@@ -55,6 +54,8 @@ Comprehensive schema in `schema.sql` with tables:
 - `awards` - Award decisions
 - `contractors` - Winning companies
 - Plus reference tables for CPV, NUTS, countries, etc.
+
+Schema is automatically created by SQLAlchemy on first run.
 
 ## Format Detection & Parser Selection
 The `ParserFactory` automatically detects and selects the appropriate parser:
@@ -84,13 +85,13 @@ The `ParserFactory` automatically detects and selects the appropriate parser:
 ## Development Commands
 - `uv run tedawards scrape --date 2024-01-01`
 - `uv run tedawards backfill --start-date 2024-01-01 --end-date 2024-01-31`
-- `docker-compose up -d` (database)
 
 ## Schema Management
-- Scraper automatically creates schema on first run if database is empty
-- No need for manual schema setup - just point at any PostgreSQL database
+- SQLAlchemy automatically creates schema on first run
+- Database is a single SQLite file for easy portability
+- Schema is defined in `models.py` using SQLAlchemy's declarative base
 
 ## Environment Variables
-- `DATABASE_URL` or individual `DB_HOST`, `DB_PORT`, `DB_NAME`, `DB_USER`, `DB_PASSWORD`
-- `TED_DATA_DIR` - Local storage for downloaded archives
-- `LOG_LEVEL` - Logging configuration
+- `DB_PATH` - Path to SQLite database file (default: `./data/tedawards.db`)
+- `TED_DATA_DIR` - Local storage for downloaded archives (default: `./data`)
+- `LOG_LEVEL` - Logging configuration (default: `INFO`)
