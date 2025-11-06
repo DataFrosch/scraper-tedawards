@@ -141,7 +141,7 @@ def save_awards(session: Session, awards: List[TedAwardDataModel]) -> int:
         try:
             # Insert document with INSERT OR IGNORE
             insert_func = sqlite_insert if engine.dialect.name == 'sqlite' else pg_insert
-            stmt = insert_func(TEDDocument).values(**award_data.document.dict())
+            stmt = insert_func(TEDDocument).values(**award_data.document.model_dump())
             stmt = stmt.on_conflict_do_nothing(index_elements=['doc_id'])
             session.execute(stmt)
             session.flush()
@@ -152,14 +152,14 @@ def save_awards(session: Session, awards: List[TedAwardDataModel]) -> int:
             ).scalar_one()
 
             # Insert contracting body
-            cb_data = award_data.contracting_body.dict()
+            cb_data = award_data.contracting_body.model_dump()
             cb_data['ted_doc_id'] = doc.doc_id
             cb = ContractingBody(**cb_data)
             session.add(cb)
             session.flush()
 
             # Insert contract
-            contract_data = award_data.contract.dict()
+            contract_data = award_data.contract.model_dump()
             contract_data['ted_doc_id'] = doc.doc_id
             contract_data['contracting_body_id'] = cb.id
             contract_data.pop('performance_nuts_code', None)
@@ -169,7 +169,7 @@ def save_awards(session: Session, awards: List[TedAwardDataModel]) -> int:
 
             # Insert awards and contractors
             for award_item in award_data.awards:
-                award_dict = award_item.dict()
+                award_dict = award_item.model_dump()
                 contractors_data = award_dict.pop('contractors', [])
                 award_dict['contract_id'] = contract.id
 
