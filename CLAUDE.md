@@ -1,35 +1,44 @@
 # TED Awards Scraper - Claude Context
 
 ## Project Overview
+
 TED Awards scraper for analyzing EU procurement contract awards from **2008 onwards**. Processes XML-formatted TED data, focusing **only on award notices** (document type 7 - "Contract award notice").
 
 ## Tech Stack & Requirements
+
 - **Development**: uv for dependency management
-- **Database**: SQLite with SQLAlchemy ORM (easy PostgreSQL migration later)
+- **Database**: SQLAlchemy ORM
 - **Python**: >=3.12 with lxml, requests, sqlalchemy, pydantic, click
 
 ## Key Architecture Decisions
+
 1. **Award-only focus**: Filter XML parsing to only process contract award notices
 2. **Environment configuration**: All DB settings via env vars (.env for dev)
 3. **Daily incremental**: Fetch daily archives we don't have yet
-4. **Direct SQLAlchemy usage**: Use SQLAlchemy ORM directly in scraper - no abstraction layers or wrappers
-5. **Database deduplication**: Use INSERT ... ON CONFLICT DO NOTHING for documents and contractors to handle duplicates
-6. **No fallbacks or defaults**: Only extract data directly from XML files - no defaults, no fallbacks, no default records. Missing data should be None in Python and NULL in database. If we cannot extract required data, skip the record entirely rather than creating defaults
-7. **Fail-loud error handling**: Errors should always bubble up and cause loud failures. Never silently ignore errors or continue processing with partial data. Use proper exception handling but let errors propagate to calling code for proper error reporting and debugging. This includes:
+4. **Database deduplication**: Use INSERT ... ON CONFLICT DO NOTHING for documents and contractors to handle duplicates
+5. **No fallbacks or defaults**: Only extract data directly from XML files - no defaults, no fallbacks, no default records. Missing data should be None in Python and NULL in database. If we cannot extract required data, skip the record entirely rather than creating defaults
+6. **Fail-loud error handling**: Errors should always bubble up and cause loud failures. Never silently ignore errors or continue processing with partial data. Use proper exception handling but let errors propagate to calling code for proper error reporting and debugging. This includes:
    - **Never assume defaults**: If required data is missing (like original language for deduplication), raise an exception rather than assuming a default value
    - **Never gracefully degrade**: If data integrity cannot be guaranteed, fail immediately rather than producing potentially incorrect results
    - **Always validate critical assumptions**: If business logic depends on certain data being present, validate it exists and fail if it doesn't
+7. **Explicit data extraction**: Use built-in Python and standard library methods - no custom utility wrappers. Every assumption about data format must be explicit and testable:
+   - **Prefer standard library**: Use built-in methods over custom implementations (e.g., Python's date parsing, lxml's text extraction)
+   - **Explicit errors**: When parsing fails, error messages must show the actual data value that failed, not just generic messages
+   - **Data quality first**: Code should reveal data quality issues, not paper over them with fallbacks
 
 ## Data Source Details
+
 - **URL Pattern**: `https://ted.europa.eu/packages/daily/{yyyynnnnn}` (e.g., 202400001)
 - **File Format**: `.tar.gz` archives containing XML documents
 - **Coverage**: XML data from **January 2008 onwards** (earlier data uses non-XML formats not supported)
 - **Rate Limits**: 3 concurrent downloads, 700 requests/min, 600 downloads per 6min/IP
 
 ### Supported XML Formats
+
 The scraper supports multiple TED XML document formats:
 
 1. **TED META XML (2008-2010)**
+
    - Format: ZIP files containing structured XML text data
    - Content: Multiple ZIP files per language (meta_org.zip variants)
    - Parser: `TedMetaXmlParser` - handles early XML format with structured fields
@@ -37,6 +46,7 @@ The scraper supports multiple TED XML document formats:
    - Coverage: 2008-2010 (overlaps with early TED 2.0 R2.0.7 format in 2011-2013)
 
 2. **TED 2.0 XML (2011-2024)** - **Unified Parser**
+
    - **R2.0.7 (2011-2013)**: XML with CONTRACT_AWARD forms, early structure
    - **R2.0.8 (2014-2015)**: XML with CONTRACT_AWARD forms, enhanced structure
    - **R2.0.9 (2014-2024)**: XML with F03_2014 forms, modern structure
@@ -51,12 +61,15 @@ The scraper supports multiple TED XML document formats:
    - Parser: `EFormsUBLParser` - handles new EU eForms standard
 
 ## Database Architecture
+
 Database setup handled directly in `scraper.py`:
+
 - Engine and session factory created at module level from environment variables
 - `get_session()` context manager for transaction management with automatic commit/rollback
 - Schema automatically created on scraper initialization
 
 SQLAlchemy models in `models.py`:
+
 - `ted_documents` - Main document metadata (PK: doc_id)
 - `contracting_bodies` - Purchasing organizations
 - `contracts` - Procurement items
@@ -68,19 +81,23 @@ SQLAlchemy models in `models.py`:
 Deduplication handled via unique constraints and `INSERT ... ON CONFLICT DO NOTHING` (works with both SQLite and PostgreSQL).
 
 ## Format Detection & Parser Selection
+
 The `ParserFactory` automatically detects and selects the appropriate parser:
+
 - **Priority Order**: TedMetaXmlParser → TedV2Parser → EFormsUBLParser
 - **Detection**: Each parser has a `can_parse()` method to identify compatible formats
 - **File Types**: Handles both `.xml` files and `.ZIP` archives containing text data
 - **TED 2.0 Auto-Detection**: The unified TedV2Parser automatically detects R2.0.7, R2.0.8, or R2.0.9 variants
 
 ### Archive Structure
+
 - **TED 2.0 (2011+)**: `.tar.gz` containing individual `.xml` files with TED_EXPORT namespace
 - **TED META XML (2008-2010)**: `.tar.gz` containing ZIP files (`*_meta_org.zip`) with structured XML data
 
 ## Key XML Data Structures
 
 ### TED 2.0 R2.0.9 (F03_2014 Award Notice)
+
 - `TED_EXPORT/CODED_DATA_SECTION` - Document metadata
 - `TED_EXPORT/FORM_SECTION/F03_2014` - Award notice data
   - `CONTRACTING_BODY` - Buyer info
@@ -88,15 +105,18 @@ The `ParserFactory` automatically detects and selects the appropriate parser:
   - `AWARD_CONTRACT` - Winner and value info
 
 ### TED META XML Format
+
 - ZIP-based XML format with structured fields
 - `TD: 7 - Contract award` identifies award notices
 - `ND` field provides universal document identifier across languages
 
 ## Development Commands
+
 - `uv run tedawards scrape --date 2024-01-01`
 - `uv run tedawards backfill --start-date 2024-01-01 --end-date 2024-01-31`
 
 ## Code Organization
+
 - `scraper.py` - Main scraper with database setup and session management
 - `models.py` - SQLAlchemy ORM models with schema definitions
 - `schema.py` - Pydantic models for data validation
@@ -104,6 +124,7 @@ The `ParserFactory` automatically detects and selects the appropriate parser:
 - `main.py` - CLI interface
 
 ## Environment Variables
+
 - `DB_PATH` - Path to SQLite database file (default: `./data/tedawards.db`)
 - `TED_DATA_DIR` - Local storage for downloaded archives (default: `./data`)
 - `LOG_LEVEL` - Logging configuration (default: `INFO`)
