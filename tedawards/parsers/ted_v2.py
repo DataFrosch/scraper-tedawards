@@ -63,11 +63,6 @@ class TedV2Parser(BaseParser):
             variant = self._detect_variant(root)
             logger.debug(f"Processing {xml_file.name} as {variant}")
 
-            # Check if this document is in English
-            if not self._is_english_version(root):
-                logger.debug(f"Skipping {xml_file.name} - not English language version")
-                return None
-
             # Extract all components using variant-aware methods
             document_info = self._extract_document_info(root, xml_file, variant)
             if not document_info:
@@ -131,20 +126,6 @@ class TedV2Parser(BaseParser):
             return "R2.0.7/R2.0.8"
 
         return "Unknown"
-
-    def _is_english_version(self, root) -> bool:
-        """Check if this XML document is in English language."""
-        # Check the form language - use namespace-agnostic xpath
-        form_elems = root.xpath('.//*[local-name()="CONTRACT_AWARD" or local-name()="F03_2014"]')
-
-        if form_elems:
-            form_elem = form_elems[0]
-            form_lang = form_elem.get('LG')
-
-            # Only process English documents
-            return form_lang == 'EN'
-
-        return False
 
     def _extract_document_info(self, root, xml_file: Path, variant: str) -> Optional[Dict]:
         """Extract document-level information."""

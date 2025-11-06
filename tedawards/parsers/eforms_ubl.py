@@ -47,11 +47,6 @@ class EFormsUBLParser(BaseParser):
                 'ext': 'urn:oasis:names:specification:ubl:schema:xsd:CommonExtensionComponents-2'
             }
 
-            # Check if this is an English language version
-            if not self._is_english_version(root, namespaces):
-                logger.debug(f"Skipping {xml_path.name} - not English language version")
-                return None
-
             # Extract basic document information
             doc_data = self._extract_document_data(root, namespaces, xml_path)
             if not doc_data:
@@ -393,26 +388,3 @@ class EFormsUBLParser(BaseParser):
         except Exception as e:
             logger.error(f"Error extracting contractors: {e}")
             return []
-
-    def _is_english_version(self, root, ns) -> bool:
-        """
-        Check if this eForms UBL document is in English language.
-        """
-        try:
-            # Extract the most common language used in the document
-            language_elements = root.xpath('.//*[@languageID]', namespaces=ns)
-            languages = [elem.get('languageID') for elem in language_elements if elem.get('languageID')]
-
-            if not languages:
-                # Fail loud - language information is required
-                raise ValueError("No language markers (languageID attributes) found in eForms document - cannot determine language")
-
-            # Get the most frequent language
-            primary_lang = max(set(languages), key=languages.count)
-
-            # Only process English documents
-            return primary_lang.upper() == 'EN'
-
-        except Exception as e:
-            logger.error(f"Error checking language version: {e}")
-            raise

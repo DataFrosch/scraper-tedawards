@@ -39,26 +39,43 @@ The scraper supports multiple TED XML document formats:
 
 1. **TED META XML (2008-2010)**
 
-   - Format: ZIP files containing structured XML text data
-   - Content: Multiple ZIP files per language (meta_org.zip variants)
-   - Parser: `TedMetaXmlParser` - handles early XML format with structured fields
-   - First available: **2008-01-03**
-   - Coverage: 2008-2010 (overlaps with early TED 2.0 R2.0.7 format in 2011-2013)
+   - **Format**: ZIP files containing structured XML text data
+   - **Content**: Multiple ZIP files per language (meta_org.zip variants)
+   - **Parser**: `TedMetaXmlParser` - handles early XML format with structured fields
+   - **First available**: 2008-01-03
+   - **Coverage**: 2008-2010 (overlaps with early TED 2.0 R2.0.7 format in 2011-2013)
+   - **Language handling**: Daily archives contain **separate ZIP files for each language** (`EN_*.zip`, `DE_*.zip`, `FR_*.zip`, etc.)
+     - Each ZIP contains documents in that specific language only
+     - Parser only processes English files (`EN_*` files)
+     - Language filter: `doc.get('lg', '').upper() == 'EN'`
+     - Documents have `lg="en"` attribute (lowercase in META XML format)
 
 2. **TED 2.0 XML (2011-2024)** - **Unified Parser**
 
-   - **R2.0.7 (2011-2013)**: XML with CONTRACT_AWARD forms, early structure
-   - **R2.0.8 (2014-2015)**: XML with CONTRACT_AWARD forms, enhanced structure
-   - **R2.0.9 (2014-2024)**: XML with F03_2014 forms, modern structure
-   - Format: XML with TED_EXPORT namespace
-   - File naming: `{6-8digits}_{year}.xml` (e.g., 000248_2012.xml)
-   - Parser: `TedV2Parser` - unified parser handling all TED 2.0 variants with automatic format detection
-   - First available: **2011-01-04**
+   - **Variants**:
+     - **R2.0.7 (2011-2013)**: XML with CONTRACT_AWARD forms, early structure
+     - **R2.0.8 (2014-2015)**: XML with CONTRACT_AWARD forms, enhanced structure
+     - **R2.0.9 (2014-2024)**: XML with F03_2014 forms, modern structure
+   - **Format**: XML with TED_EXPORT namespace
+   - **File naming**: `{6-8digits}_{year}.xml` (e.g., 000248_2012.xml)
+   - **Parser**: `TedV2Parser` - unified parser handling all TED 2.0 variants with automatic format detection
+   - **First available**: 2011-01-04
+   - **Language handling**: Daily archives contain **one XML file per document** in its **original language**
+     - Each document includes:
+       - `FORM_SECTION` with form in original language (e.g., `<F03_2014 LG="DE">`)
+       - `TRANSLATION_SECTION` with **English labels** and translations for all EU languages
+       - `CODED_DATA_SECTION` with English descriptions for CPV codes, NUTS, etc.
+     - **Parser processes ALL documents regardless of original language**
+     - Extracts English labels from `TRANSLATION_SECTION` when available
+     - Example: A German procurement (`LG="DE"`) includes `<ML_TI_DOC LG="EN">` with English title
+     - **CRITICAL**: Do NOT filter by language - would lose 95%+ of documents
 
 3. **eForms UBL ContractAwardNotice (2025+)**
-   - Format: UBL-based XML with ContractAwardNotice schema
-   - Namespace: `urn:oasis:names:specification:ubl:schema:xsd:ContractAwardNotice-2`
-   - Parser: `EFormsUBLParser` - handles new EU eForms standard
+   - **Format**: UBL-based XML with ContractAwardNotice schema
+   - **Namespace**: `urn:oasis:names:specification:ubl:schema:xsd:ContractAwardNotice-2`
+   - **Parser**: `EFormsUBLParser` - handles new EU eForms standard
+   - **Language handling**: Similar to TED 2.0 - one file per document with language markers in `languageID` attributes
+     - **Parser processes ALL documents regardless of language**
 
 ## Database Architecture
 

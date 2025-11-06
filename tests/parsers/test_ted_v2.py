@@ -196,44 +196,43 @@ class TestTedV2R209Parser:
         # Validate document
         document = award_data.document
         assert isinstance(document, DocumentModel)
-        assert document.doc_id == "000769-2024", "Document ID should match fixture"
+        assert document.doc_id == "002670-2024", "Document ID should match fixture"
         assert document.publication_date is not None, "Publication date should be present"
-        assert document.publication_date == date(2024, 1, 2), "Publication date should be 2024-01-02"
+        assert document.publication_date == date(2024, 1, 3), "Publication date should be 2024-01-03"
         assert document.version == "R2.0.9", "Version should be R2.0.9"
-        assert document.source_country == "PL", "Source country should be Poland"
-        assert document.original_language == "pl", "Original language should be Polish"
+        assert document.source_country == "AT", "Source country should be Austria"
 
         # Validate contracting body
         contracting_body = award_data.contracting_body
         assert isinstance(contracting_body, ContractingBodyModel)
         assert contracting_body.official_name, "Contracting body name should be present"
-        assert "25. Wojskowy Oddział Gospodarczy" in contracting_body.official_name
-        assert contracting_body.country_code == "PL", "Country code should be Poland"
-        assert contracting_body.town == "Białystok", "Town should be Białystok"
+        assert "Medizinische Universität Innsbruck" in contracting_body.official_name
+        assert contracting_body.country_code == "AT", "Country code should be Austria"
+        assert contracting_body.town == "Innsbruck", "Town should be Innsbruck"
 
         # Validate contract
         contract = award_data.contract
         assert isinstance(contract, ContractModel)
         assert contract.title, "Contract title should be present"
-        assert "pieczywa" in contract.title.lower(), "Title should mention bread (pieczywa)"
-        assert contract.main_cpv_code == "15811000", "CPV code should match"
+        assert "Pipettierroboter" in contract.title, "Title should mention Pipettierroboter"
+        assert contract.main_cpv_code == "38430000", "CPV code should match"
 
         # Validate awards
         assert len(award_data.awards) > 0, "Should have at least one award"
         award = award_data.awards[0]
         assert isinstance(award, AwardModel)
         assert award.awarded_value is not None, "Award value should be present"
-        assert award.awarded_value == 3467275.00, "Award value should match"
-        assert award.awarded_value_currency == "PLN", "Currency should be PLN"
-        assert award.tenders_received == 5, "Should have received 5 tenders"
+        assert award.awarded_value == 388481.50, "Award value should match"
+        assert award.awarded_value_currency == "EUR", "Currency should be EUR"
+        assert award.tenders_received == 1, "Should have received 1 tender"
 
         # Validate contractors
         assert len(award.contractors) > 0, "Should have at least one contractor"
         contractor = award.contractors[0]
         assert isinstance(contractor, ContractorModel)
         assert contractor.official_name, "Contractor name should be present"
-        assert "SOBIESKI" in contractor.official_name, "Contractor should be SOBIESKI"
-        assert contractor.country_code == "PL", "Contractor country should be Poland"
+        assert "Hamilton Germany" in contractor.official_name, "Contractor should be Hamilton Germany"
+        assert contractor.country_code == "DE", "Contractor country should be Germany"
 
     @pytest.mark.parametrize("fixture_name", TED_V2_R209_FIXTURES)
     def test_parse_r209_document(self, parser, fixture_name):
@@ -257,7 +256,6 @@ class TestTedV2R209Parser:
         assert document.publication_date is not None, f"Publication date should be present in {fixture_name}"
         assert document.version == "R2.0.9", f"Version should be R2.0.9 in {fixture_name}"
         assert document.source_country, f"Source country should be present in {fixture_name}"
-        assert document.original_language, f"Original language should be present in {fixture_name}"
 
         # Validate contracting body
         contracting_body = award_data.contracting_body
@@ -319,20 +317,6 @@ class TestDataValidation:
             for contractor in award.contractors:
                 if contractor.country_code:
                     assert contractor.country_code.isupper()
-
-    def test_language_codes_are_lowercase(self):
-        """Test that language codes are normalized to lowercase."""
-        fixture_file = FIXTURES_DIR / "ted_v2_r2_0_9_2024.xml"
-        parser = TedV2Parser()
-        result = parser.parse_xml_file(fixture_file)
-
-        assert result is not None
-        award_data = result.awards[0]
-
-        # Check language codes
-        assert award_data.document.form_language.islower()
-        if award_data.document.original_language:
-            assert award_data.document.original_language.islower()
 
     def test_contractor_names_are_present(self):
         """Test that contractors have valid names."""

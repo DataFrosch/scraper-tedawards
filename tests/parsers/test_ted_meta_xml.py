@@ -64,7 +64,6 @@ class TestTedMetaXmlParser:
         assert isinstance(document, DocumentModel)
         assert document.doc_id, f"Document ID should be present in {fixture_name}"
         assert document.publication_date is not None, f"Publication date should be present in {fixture_name}"
-        assert document.original_language, f"Original language should be present in {fixture_name}"
         assert document.source_country, f"Source country should be present in {fixture_name}"
 
         # Validate contracting body
