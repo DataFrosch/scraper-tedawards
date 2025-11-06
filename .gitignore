@@ -11,3 +11,4 @@ wheels/
 test_data
 .env
 /data
+/tedawards.db
