@@ -83,6 +83,12 @@ def download_and_extract(package_url: str, target_date: date, data_dir: Path = D
     try:
         response = requests.get(package_url, timeout=30)
         response.raise_for_status()
+    except requests.HTTPError as e:
+        if e.response.status_code == 404:
+            logger.error(f"Package not available (404): {package_url}")
+            return []
+        logger.error(f"Failed to download package: {e}")
+        raise
     except requests.RequestException as e:
         logger.error(f"Failed to download package: {e}")
         raise
