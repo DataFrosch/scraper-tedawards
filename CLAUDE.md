@@ -170,6 +170,6 @@ uv run tedawards package --package 200800001
 
 ## Environment Variables
 
-- `DB_PATH` - Path to SQLite database file (default: `./data/tedawards.db`)
+- `DB_PATH` - Path to SQLite database file (default: `./tedawards.db`)
 - `TED_DATA_DIR` - Local storage for downloaded archives (default: `./data`)
 - `LOG_LEVEL` - Logging configuration (default: `INFO`)
