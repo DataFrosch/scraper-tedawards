@@ -149,7 +149,6 @@ def save_awards(session: Session, awards: List[TedAwardDataModel]) -> int:
                 set_={'doc_id': stmt.excluded.doc_id}  # No-op update to trigger RETURNING
             ).returning(TEDDocument.doc_id)
             doc_id = session.execute(stmt).scalar_one()
-            session.flush()
 
             # Insert/update contracting body with RETURNING to get id
             cb_data = award_data.contracting_body.model_dump()
@@ -162,7 +161,6 @@ def save_awards(session: Session, awards: List[TedAwardDataModel]) -> int:
                 set_={'entity_hash': stmt.excluded.entity_hash}  # No-op update
             ).returning(ContractingBody.id)
             cb_id = session.execute(stmt).scalar_one()
-            session.flush()
 
             # Insert document-contracting body relationship with INSERT OR IGNORE
             from .models import document_contracting_bodies
@@ -172,7 +170,6 @@ def save_awards(session: Session, awards: List[TedAwardDataModel]) -> int:
             )
             stmt = stmt.on_conflict_do_nothing()
             session.execute(stmt)
-            session.flush()
 
             # Insert/update contract with RETURNING to get id
             contract_data = award_data.contract.model_dump()
@@ -186,7 +183,6 @@ def save_awards(session: Session, awards: List[TedAwardDataModel]) -> int:
                 set_={'ted_doc_id': stmt.excluded.ted_doc_id}  # No-op update
             ).returning(Contract.id)
             contract_id = session.execute(stmt).scalar_one()
-            session.flush()
 
             # Insert awards and contractors
             for award_item in award_data.awards:
@@ -201,7 +197,6 @@ def save_awards(session: Session, awards: List[TedAwardDataModel]) -> int:
                     set_={'contract_id': stmt.excluded.contract_id}  # No-op update
                 ).returning(Award.id)
                 award_id = session.execute(stmt).scalar_one()
-                session.flush()
 
                 # Insert contractors and link to awards
                 for contractor_item in award_item.contractors:
@@ -215,7 +210,6 @@ def save_awards(session: Session, awards: List[TedAwardDataModel]) -> int:
                         set_={'entity_hash': stmt.excluded.entity_hash}  # No-op update
                     ).returning(Contractor.id)
                     contractor_id = session.execute(stmt).scalar_one()
-                    session.flush()
 
                     # Insert award-contractor relationship with INSERT OR IGNORE
                     from .models import award_contractors
