@@ -3,8 +3,7 @@ import os
 import requests
 import tarfile
 from pathlib import Path
-from datetime import date, timedelta
-from typing import List
+from typing import List, Optional
 from contextlib import contextmanager
 from dotenv import load_dotenv
 from sqlalchemy import create_engine, select
@@ -53,53 +52,51 @@ def get_session() -> Session:
         session.close()
 
 
-def get_day_number(target_date: date) -> int:
-    """Calculate TED day number for a given date."""
-    year = target_date.year
-    start_of_year = date(year, 1, 1)
-    days_since_start = (target_date - start_of_year).days + 1
-    return year * 100000 + days_since_start
+def get_package_number(year: int, issue: int) -> int:
+    """Calculate TED package number from year and OJ issue number."""
+    return year * 100000 + issue
 
 
-def download_and_extract(package_url: str, target_date: date, data_dir: Path = DATA_DIR) -> List[Path]:
+def download_and_extract(package_number: int, data_dir: Path = DATA_DIR) -> Optional[List[Path]]:
     """Download and extract daily package, return list of XML and ZIP files."""
-    date_str = target_date.strftime('%Y-%m-%d')
-    archive_path = data_dir / f"{date_str}.tar.gz"
-    extract_dir = data_dir / date_str
+    package_url = f"https://ted.europa.eu/packages/daily/{package_number:09d}"
+    package_str = f"{package_number:09d}"
+    archive_path = data_dir / f"{package_str}.tar.gz"
+    extract_dir = data_dir / package_str
 
     # Check if already downloaded and extracted
     if extract_dir.exists():
         existing_files = list(extract_dir.glob('**/*'))
         existing_files = [f for f in existing_files if f.is_file()]
         if existing_files:
-            logger.info(f"Using existing data for {date_str}")
+            logger.debug(f"Using existing data for package {package_str}")
             return existing_files
 
     # Download package
-    logger.info(f"Downloading package from {package_url}")
+    logger.debug(f"Downloading package {package_str} from {package_url}")
     try:
         response = requests.get(package_url, timeout=30)
         response.raise_for_status()
     except requests.HTTPError as e:
         if e.response.status_code == 404:
-            logger.error(f"Package not available (404): {package_url}")
-            return []
-        logger.error(f"Failed to download package: {e}")
+            logger.debug(f"Package not available (404): {package_str}")
+            return None
+        logger.error(f"Failed to download package {package_str}: {e}")
         raise
     except requests.RequestException as e:
-        logger.error(f"Failed to download package: {e}")
+        logger.error(f"Failed to download package {package_str}: {e}")
         raise
 
     # Save and extract
     archive_path.write_bytes(response.content)
-    logger.debug(f"Downloaded {len(response.content)} bytes")
+    logger.debug(f"Downloaded {len(response.content)} bytes for package {package_str}")
 
     extract_dir.mkdir(exist_ok=True)
     try:
         with tarfile.open(archive_path, 'r:gz') as tar_file:
             tar_file.extractall(extract_dir)
     except tarfile.TarError as e:
-        logger.error(f"Failed to extract package: {e}")
+        logger.error(f"Failed to extract package {package_str}: {e}")
         raise
 
     # Clean up archive file
@@ -230,20 +227,12 @@ def save_awards(session: Session, awards: List[TedAwardDataModel]) -> int:
     return count
 
 
-def scrape_date(target_date: date, data_dir: Path = DATA_DIR):
-    """Scrape TED awards for a specific date."""
-    Base.metadata.create_all(engine)
-
-    day_number = get_day_number(target_date)
-    package_url = f"https://ted.europa.eu/packages/daily/{day_number:09d}"
-
-    logger.info(f"Scraping TED awards for {target_date} (day {day_number:09d})")
-
+def scrape_package(package_number: int, data_dir: Path = DATA_DIR) -> int:
+    """Scrape TED awards for a specific package number. Returns number of awards processed."""
     # Download and extract daily package
-    files = download_and_extract(package_url, target_date, data_dir)
-    if not files:
-        logger.warning(f"No files found for {target_date}")
-        return
+    files = download_and_extract(package_number, data_dir)
+    if files is None:
+        return 0
 
     # Process all files and collect awards
     # Filter for English-only files to avoid processing all language variants
@@ -271,20 +260,85 @@ def scrape_date(target_date: date, data_dir: Path = DATA_DIR):
     if all_awards:
         with get_session() as session:
             saved = save_awards(session, all_awards)
-            logger.info(f"Processed {saved} award notices for {target_date}")
+            logger.info(f"Package {package_number:09d}: Processed {saved} award notices")
+            return saved
     else:
-        logger.info(f"No award notices found for {target_date}")
+        logger.debug(f"Package {package_number:09d}: No award notices found")
+        return 0
 
 
-def backfill_range(start_date: date, end_date: date, data_dir: Path = DATA_DIR):
-    """Backfill TED awards for a date range."""
+def scrape_year(year: int, start_issue: int = 1, max_issue: int = 300, data_dir: Path = DATA_DIR):
+    """Scrape TED awards for all available packages in a year.
+
+    Args:
+        year: The year to scrape
+        start_issue: Starting OJ issue number (default: 1)
+        max_issue: Maximum issue number to try (default: 300, sufficient for most years)
+        data_dir: Directory for storing downloaded packages
+    """
     Base.metadata.create_all(engine)
 
-    logger.info(f"Backfilling TED awards from {start_date} to {end_date}")
+    logger.info(f"Scraping TED awards for year {year} (issues {start_issue}-{max_issue})")
 
-    current_date = start_date
-    while current_date <= end_date:
-        scrape_date(current_date, data_dir)
-        current_date += timedelta(days=1)
+    total_processed = 0
+    consecutive_404s = 0
+    max_consecutive_404s = 10  # Stop after 10 consecutive 404s
 
-    logger.info("Backfill completed")
+    for issue in range(start_issue, max_issue + 1):
+        package_number = get_package_number(year, issue)
+
+        # Download and extract package
+        files = download_and_extract(package_number, data_dir)
+
+        if files is None:
+            # Package doesn't exist (404)
+            consecutive_404s += 1
+            if consecutive_404s >= max_consecutive_404s:
+                logger.info(f"Stopping after {max_consecutive_404s} consecutive 404s at issue {issue}")
+                break
+            continue
+
+        # Reset 404 counter on success
+        consecutive_404s = 0
+
+        # Process all files and collect awards
+        english_files = [
+            f for f in files
+            if (
+                # TED META XML: en_*_meta_org.zip or EN_*_META_ORG.ZIP
+                f.name.lower().startswith('en_') and '_meta_org.' in f.name.lower()
+            ) or (
+                # TED INTERNAL_OJS: *.en files
+                f.suffix.lower() == '.en'
+            ) or (
+                # TED 2.0 and eForms: all languages in one file (*.xml)
+                f.suffix.lower() == '.xml'
+            )
+        ]
+
+        all_awards = []
+        for file_path in english_files:
+            parser_result = process_file(file_path)
+            if parser_result:
+                all_awards.extend(parser_result.awards)
+
+        # Save all awards in a single transaction
+        if all_awards:
+            with get_session() as session:
+                saved = save_awards(session, all_awards)
+                total_processed += saved
+                logger.info(f"Package {package_number:09d}: Processed {saved} award notices")
+
+    logger.info(f"Year {year} completed: Processed {total_processed} total award notices")
+
+
+def scrape_year_range(start_year: int, end_year: int, data_dir: Path = DATA_DIR):
+    """Scrape TED awards for a range of years."""
+    Base.metadata.create_all(engine)
+
+    logger.info(f"Scraping TED awards from {start_year} to {end_year}")
+
+    for year in range(start_year, end_year + 1):
+        scrape_year(year, data_dir=data_dir)
+
+    logger.info("Scraping completed")

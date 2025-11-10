@@ -1,8 +1,8 @@
 import click
 import logging
 import os
-from datetime import date
-from .scraper import scrape_date, backfill_range
+from datetime import datetime
+from .scraper import scrape_year, scrape_year_range, scrape_package
 
 logging.basicConfig(
     level=getattr(logging, os.getenv('LOG_LEVEL', 'INFO')),
@@ -15,20 +15,35 @@ def cli():
     pass
 
 @cli.command()
-@click.option('--date', type=click.DateTime(['%Y-%m-%d']), default=str(date.today()),
-              help='Date to scrape (YYYY-MM-DD), defaults to today')
-def scrape(date):
-    """Scrape TED awards for a specific date."""
-    scrape_date(date.date())
+@click.option('--year', type=int, required=True,
+              help='Year to scrape (e.g., 2024)')
+@click.option('--start-issue', type=int, default=1,
+              help='Starting OJ issue number (default: 1)')
+@click.option('--max-issue', type=int, default=300,
+              help='Maximum issue number to try (default: 300)')
+def scrape(year, start_issue, max_issue):
+    """Scrape TED awards for a specific year."""
+    scrape_year(year, start_issue, max_issue)
 
 @cli.command()
-@click.option('--start-date', type=click.DateTime(['%Y-%m-%d']), required=True,
-              help='Start date for backfill (YYYY-MM-DD)')
-@click.option('--end-date', type=click.DateTime(['%Y-%m-%d']), default=str(date.today()),
-              help='End date for backfill (YYYY-MM-DD), defaults to today')
-def backfill(start_date, end_date):
-    """Backfill TED awards for a date range."""
-    backfill_range(start_date.date(), end_date.date())
+@click.option('--start-year', type=int, required=True,
+              help='Start year for backfill (e.g., 2008)')
+@click.option('--end-year', type=int, default=datetime.now().year,
+              help='End year for backfill (default: current year)')
+def backfill(start_year, end_year):
+    """Backfill TED awards for a range of years."""
+    scrape_year_range(start_year, end_year)
+
+@cli.command()
+@click.option('--package', type=int, required=True,
+              help='Package number to scrape (e.g., 202400001)')
+def package(package):
+    """Scrape a specific TED package by number."""
+    count = scrape_package(package)
+    if count > 0:
+        click.echo(f"Successfully processed {count} award notices")
+    else:
+        click.echo("No award notices found or package not available")
 
 if __name__ == '__main__':
     cli()

@@ -14,7 +14,7 @@ TED Awards scraper for analyzing EU procurement contract awards from **2008 onwa
 
 1. **Award-only focus**: Filter XML parsing to only process contract award notices
 2. **Environment configuration**: All DB settings via env vars (.env for dev)
-3. **Daily incremental**: Fetch daily archives we don't have yet
+3. **Year-based scraping**: Scrape by year, iterating through sequential OJ issue numbers (not calendar dates)
 4. **Database deduplication**: Use INSERT ... ON CONFLICT DO NOTHING for documents and contractors to handle duplicates
 5. **No fallbacks or defaults**: Only extract data directly from XML files - no defaults, no fallbacks, no default records. Missing data should be None in Python and NULL in database. If we cannot extract required data, skip the record entirely rather than creating defaults
 6. **Fail-loud error handling**: Errors should always bubble up and cause loud failures. Never silently ignore errors or continue processing with partial data. Use proper exception handling but let errors propagate to calling code for proper error reporting and debugging. This includes:
@@ -28,10 +28,12 @@ TED Awards scraper for analyzing EU procurement contract awards from **2008 onwa
 
 ## Data Source Details
 
-- **URL Pattern**: `https://ted.europa.eu/packages/daily/{yyyynnnnn}` (e.g., 202400001)
+- **URL Pattern**: `https://ted.europa.eu/packages/daily/{yyyynnnnn}` where `nnnnn` is the Official Journal (OJ S) issue number (e.g., 202400001 = issue 1 of 2024)
+- **Package Numbering**: Sequential issue numbers, NOT calendar days. Issues increment by 1 but skip weekends/holidays (e.g., 2008 ends at issue 253, not 366)
 - **File Format**: `.tar.gz` archives containing XML documents
 - **Coverage**: XML data from **January 2008 onwards** (earlier data uses non-XML formats not supported)
 - **Rate Limits**: 3 concurrent downloads, 700 requests/min, 600 downloads per 6min/IP
+- **Scraping Strategy**: Try sequential issue numbers starting from 1, stopping after 10 consecutive 404s (typical year has ~250 issues)
 
 ### Supported XML Formats
 
@@ -144,8 +146,19 @@ The `ParserFactory` automatically detects and selects the appropriate parser:
 
 ## Development Commands
 
-- `uv run tedawards scrape --date 2024-01-01`
-- `uv run tedawards backfill --start-date 2024-01-01 --end-date 2024-01-31`
+```bash
+# Scrape a full year (tries all issues 1-300, stops after 10 consecutive 404s)
+uv run tedawards scrape --year 2024
+
+# Scrape specific issue range within a year
+uv run tedawards scrape --year 2008 --start-issue 1 --max-issue 50
+
+# Backfill multiple years
+uv run tedawards backfill --start-year 2008 --end-year 2024
+
+# Scrape a specific package by number
+uv run tedawards package --package 200800001
+```
 
 ## Code Organization
 

@@ -4,53 +4,54 @@ A Python scraper for EU procurement contract award notices from [TED Europa](htt
 
 ## Features
 
-- Scrapes daily TED award notice archives from **January 2008 onwards** (document type 7 only)
+- Scrapes TED award notice packages by year from **January 2008 onwards** (document type 7 only)
 - Supports multiple XML formats:
   - TED META XML (2008-2010) - Early XML format in ZIP archives
   - TED INTERNAL_OJS R2.0.5 (2008) - Transitional INTERNAL_OJS wrapper format
   - TED 2.0 R2.0.7-R2.0.9 (2011-2024) - Standard TED XML formats
   - eForms UBL (2025+) - New EU eForms standard
-- Comprehensive PostgreSQL database schema for procurement data
-- Processes 300-900+ award notices per day (varies by TED archive content)
-- Extracts thousands of awards and contractors from daily archives
+- SQLite database with comprehensive procurement schema (PostgreSQL also supported)
+- Processes TED packages by Official Journal issue number (not calendar dates)
+- Smart stopping logic: automatically detects end of year (stops after 10 consecutive 404s)
 - Automatic schema creation and reference data management
-- Docker development environment
+- Handles duplicate data gracefully with database-level deduplication
 
 ## Quick Start
 
 1. **Setup environment**:
    ```bash
-   # Start PostgreSQL
-   docker-compose up -d
-
    # Install dependencies
    uv sync
    ```
 
 2. **Scrape data**:
    ```bash
-   # Scrape specific date (2008-01-03 onwards)
-   uv run tedawards scrape --date 2024-01-01
+   # Scrape a full year (automatically finds all available packages)
+   uv run tedawards scrape --year 2024
 
-   # Backfill date range
-   uv run tedawards backfill --start-date 2024-01-01 --end-date 2024-01-07
+   # Scrape specific issue range within a year
+   uv run tedawards scrape --year 2008 --start-issue 1 --max-issue 50
+
+   # Backfill multiple years
+   uv run tedawards backfill --start-year 2008 --end-year 2024
+
+   # Scrape a specific package by number
+   uv run tedawards package --package 200800001
    ```
 
 3. **Query data**:
    ```bash
-   docker-compose exec postgres psql -U tedawards -d tedawards
+   # SQLite database is created at ./tedawards.db by default
+   sqlite3 tedawards.db
    ```
 
 ## Configuration
 
 Set environment variables in `.env`:
 ```env
-DB_HOST=localhost
-DB_PORT=5432
-DB_NAME=tedawards
-DB_USER=tedawards
-DB_PASSWORD=password
-DATA_DIR=./data
+DB_PATH=./tedawards.db          # SQLite database path (default: ./tedawards.db)
+TED_DATA_DIR=./data              # Directory for downloaded packages (default: ./data)
+LOG_LEVEL=INFO                   # Logging level (default: INFO)
 ```
 
 ## Database Schema
@@ -70,9 +71,17 @@ Key tables:
   - `TedInternalOjsParser` - TED INTERNAL_OJS R2.0.5 format (2008)
   - `TedV2Parser` - TED 2.0 R2.0.7/R2.0.8/R2.0.9 formats (2011-2024)
   - `EFormsUBLParser` - eForms UBL ContractAwardNotice (2025+)
-- **Database**: PostgreSQL with comprehensive procurement schema (SQLite also supported)
-- **Scraper**: Downloads and processes daily TED archives from 2008 onwards
-- **CLI**: Simple commands for scraping and backfilling
+- **Database**: SQLite with comprehensive procurement schema (PostgreSQL also supported)
+- **Scraper**: Downloads and processes TED packages by Official Journal issue number (sequential, not calendar-based)
+- **CLI**: Year-based commands for scraping and backfilling
+
+## Package Numbering
+
+TED packages use **Official Journal (OJ S) issue numbers**, not calendar dates:
+- Format: `{year}{issue_number:05d}` (e.g., `200800001` = issue 1 of 2008)
+- Issues are sequential but skip weekends/holidays
+- Typical year has ~250 issues (not 365 days)
+- Scraper automatically handles gaps by stopping after 10 consecutive 404s
 
 ## Data Coverage
 
