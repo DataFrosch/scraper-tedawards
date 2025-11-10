@@ -43,14 +43,28 @@ The scraper supports multiple TED XML document formats:
    - **Content**: Multiple ZIP files per language (meta_org.zip variants)
    - **Parser**: `TedMetaXmlParser` - handles early XML format with structured fields
    - **First available**: 2008-01-03
-   - **Coverage**: 2008-2010 (overlaps with early TED 2.0 R2.0.7 format in 2011-2013)
+   - **Coverage**: 2008-2010 (overlaps with TED INTERNAL_OJS and early TED 2.0 formats)
    - **Language handling**: Daily archives contain **separate ZIP files for each language** (`EN_*.zip`, `DE_*.zip`, `FR_*.zip`, etc.)
      - Each ZIP contains documents in that specific language only
      - Parser only processes English files (`EN_*` files)
      - Language filter: `doc.get('lg', '').upper() == 'EN'`
      - Documents have `lg="en"` attribute (lowercase in META XML format)
 
-2. **TED 2.0 XML (2011-2024)** - **Unified Parser**
+2. **TED INTERNAL_OJS R2.0.5 (2008)**
+
+   - **Format**: Individual XML files with language-specific extensions (`.en`, `.de`, `.fr`, etc.)
+   - **Root element**: `<INTERNAL_OJS>` wrapper
+   - **Award forms**: `<CONTRACT_AWARD_SUM>` with `<FD_CONTRACT_AWARD_SUM>` content
+   - **Parser**: `TedInternalOjsParser` - handles INTERNAL_OJS wrapper format
+   - **First available**: 2008 (specific dates vary)
+   - **Coverage**: 2008 only (transitional format between META XML and TED 2.0)
+   - **File structure**: Directories containing `{doc_id}_{year}.{lang}` files (e.g., `114495_2008.en`)
+   - **Language handling**: Parser only processes `.en` files (English language)
+     - Each document is a separate file per language
+     - Award identification via `<NAT_NOTICE>7</NAT_NOTICE>` in `BIB_DOC_S` section
+   - **Document ID pattern**: `ojs-{NO_DOC_OJS}` (e.g., `ojs-2008/S 85-114495`)
+
+3. **TED 2.0 XML (2011-2024)** - **Unified Parser**
 
    - **Variants**:
      - **R2.0.7 (2011-2013)**: XML with CONTRACT_AWARD forms, early structure
@@ -70,7 +84,7 @@ The scraper supports multiple TED XML document formats:
      - Example: A German procurement (`LG="DE"`) includes `<ML_TI_DOC LG="EN">` with English title
      - **CRITICAL**: Do NOT filter by language - would lose 95%+ of documents
 
-3. **eForms UBL ContractAwardNotice (2025+)**
+4. **eForms UBL ContractAwardNotice (2025+)**
    - **Format**: UBL-based XML with ContractAwardNotice schema
    - **Namespace**: `urn:oasis:names:specification:ubl:schema:xsd:ContractAwardNotice-2`
    - **Parser**: `EFormsUBLParser` - handles new EU eForms standard
@@ -101,14 +115,15 @@ Deduplication handled via unique constraints and `INSERT ... ON CONFLICT DO NOTH
 
 The `ParserFactory` automatically detects and selects the appropriate parser:
 
-- **Priority Order**: TedMetaXmlParser → TedV2Parser → EFormsUBLParser
+- **Priority Order**: TedMetaXmlParser → TedInternalOjsParser → TedV2Parser → EFormsUBLParser
 - **Detection**: Each parser has a `can_parse()` method to identify compatible formats
-- **File Types**: Handles both `.xml` files and `.ZIP` archives containing text data
+- **File Types**: Handles `.xml` files, `.en` files, and `.ZIP` archives
 - **TED 2.0 Auto-Detection**: The unified TedV2Parser automatically detects R2.0.7, R2.0.8, or R2.0.9 variants
 
 ### Archive Structure
 
 - **TED 2.0 (2011+)**: `.tar.gz` containing individual `.xml` files with TED_EXPORT namespace
+- **TED INTERNAL_OJS (2008)**: `.tar.gz` containing directories with language-specific files (`.en`, `.de`, etc.)
 - **TED META XML (2008-2010)**: `.tar.gz` containing ZIP files (`*_meta_org.zip`) with structured XML data
 
 ## Key XML Data Structures

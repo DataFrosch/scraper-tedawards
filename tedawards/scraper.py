@@ -70,13 +70,13 @@ def download_and_extract(package_url: str, target_date: date, data_dir: Path = D
     archive_path = data_dir / f"{date_str}.tar.gz"
     extract_dir = data_dir / date_str
 
-    # Check if already downloaded and extracted - case insensitive
-    existing_xml = (list(extract_dir.glob('**/*.xml')) + list(extract_dir.glob('**/*.XML'))) if extract_dir.exists() else []
-    existing_zip = (list(extract_dir.glob('**/*.zip')) + list(extract_dir.glob('**/*.ZIP'))) if extract_dir.exists() else []
-
-    if existing_xml or existing_zip:
-        logger.info(f"Using existing data for {date_str}")
-        return existing_xml + existing_zip
+    # Check if already downloaded and extracted
+    if extract_dir.exists():
+        existing_files = list(extract_dir.glob('**/*'))
+        existing_files = [f for f in existing_files if f.is_file()]
+        if existing_files:
+            logger.info(f"Using existing data for {date_str}")
+            return existing_files
 
     # Download package
     logger.info(f"Downloading package from {package_url}")
@@ -108,11 +108,9 @@ def download_and_extract(package_url: str, target_date: date, data_dir: Path = D
     # Clean up archive file
     archive_path.unlink()
 
-    # Look for both XML files (newer format) and ZIP files (2007 text format) - case insensitive
-    xml_files = list(extract_dir.glob('**/*.xml')) + list(extract_dir.glob('**/*.XML'))
-    zip_files = list(extract_dir.glob('**/*.zip')) + list(extract_dir.glob('**/*.ZIP'))
-
-    all_files = xml_files + zip_files
+    # Return all files - let parsers decide what they can handle
+    all_files = list(extract_dir.glob('**/*'))
+    all_files = [f for f in all_files if f.is_file()]
     return all_files
 
 

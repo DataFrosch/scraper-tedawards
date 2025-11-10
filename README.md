@@ -6,7 +6,8 @@ A Python scraper for EU procurement contract award notices from [TED Europa](htt
 
 - Scrapes daily TED award notice archives from **January 2008 onwards** (document type 7 only)
 - Supports multiple XML formats:
-  - TED META XML (2008-2010) - Early XML format
+  - TED META XML (2008-2010) - Early XML format in ZIP archives
+  - TED INTERNAL_OJS R2.0.5 (2008) - Transitional INTERNAL_OJS wrapper format
   - TED 2.0 R2.0.7-R2.0.9 (2011-2024) - Standard TED XML formats
   - eForms UBL (2025+) - New EU eForms standard
 - Comprehensive PostgreSQL database schema for procurement data
@@ -66,6 +67,7 @@ Key tables:
 
 - **Parsers**: Automatically detects and processes multiple XML formats
   - `TedMetaXmlParser` - TED META XML format (2008-2010)
+  - `TedInternalOjsParser` - TED INTERNAL_OJS R2.0.5 format (2008)
   - `TedV2Parser` - TED 2.0 R2.0.7/R2.0.8/R2.0.9 formats (2011-2024)
   - `EFormsUBLParser` - eForms UBL ContractAwardNotice (2025+)
 - **Database**: PostgreSQL with comprehensive procurement schema (SQLite also supported)
@@ -80,4 +82,4 @@ Key tables:
   - ✅ All key procurement data extracted accurately
   - ✅ Handles multiple XML formats and variations
   - ✅ Consistent processing across different archive dates
-- **Format Support**: All major TED XML formats (META, R2.0.7-R2.0.9, eForms UBL)
+- **Format Support**: All major TED XML formats (META XML, INTERNAL_OJS R2.0.5, R2.0.7-R2.0.9, eForms UBL)

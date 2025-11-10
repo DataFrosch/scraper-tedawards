@@ -13,6 +13,7 @@ from pathlib import Path
 
 from tedawards.parsers.factory import ParserFactory
 from tedawards.parsers.ted_meta_xml import TedMetaXmlParser
+from tedawards.parsers.ted_internal_ojs import TedInternalOjsParser
 from tedawards.parsers.ted_v2 import TedV2Parser
 from tedawards.parsers.eforms_ubl import EFormsUBLParser
 
@@ -24,6 +25,10 @@ TED_META_FIXTURES = [
     "ted_meta_2008_en.zip",
     "ted_meta_2009_en.zip",
     "ted_meta_2010_en.zip",
+]
+
+TED_INTERNAL_OJS_FIXTURES = [
+    "ted_internal_ojs_r2_0_5_2008.en",
 ]
 
 TED_V2_R207_FIXTURES = [
@@ -60,6 +65,14 @@ class TestParserFactory:
         assert parser is not None, f"Factory should return a parser for {fixture_name}"
         assert isinstance(parser, TedMetaXmlParser), f"Should detect TED META XML parser for {fixture_name}"
 
+    @pytest.mark.parametrize("fixture_name", TED_INTERNAL_OJS_FIXTURES)
+    def test_factory_detects_ted_internal_ojs(self, factory, fixture_name):
+        """Test factory auto-detects TED INTERNAL_OJS R2.0.5 format."""
+        fixture_file = FIXTURES_DIR / fixture_name
+        parser = factory.get_parser(fixture_file)
+        assert parser is not None, f"Factory should return a parser for {fixture_name}"
+        assert isinstance(parser, TedInternalOjsParser), f"Should detect TED INTERNAL_OJS parser for {fixture_name}"
+
     @pytest.mark.parametrize("fixture_name", TED_V2_R207_FIXTURES)
     def test_factory_detects_ted_v2_r207(self, factory, fixture_name):
         """Test factory auto-detects TED 2.0 R2.0.7 format."""
@@ -95,8 +108,9 @@ class TestParserFactory:
     def test_factory_supported_formats(self, factory):
         """Test factory returns list of supported formats."""
         formats = factory.get_supported_formats()
-        assert len(formats) >= 3, "Should support at least 3 formats"
+        assert len(formats) >= 4, "Should support at least 4 formats"
         assert "TED META XML" in formats
+        assert "TED INTERNAL_OJS R2.0.5" in formats
         assert "TED 2.0" in formats
         assert "eForms UBL ContractAwardNotice" in formats
 
