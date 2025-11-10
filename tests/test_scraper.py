@@ -14,12 +14,12 @@ from sqlalchemy import create_engine, select
 from sqlalchemy.orm import sessionmaker
 
 from tedawards.scraper import (
-    get_day_number,
     download_and_extract,
     process_file,
     save_awards,
-    scrape_date,
-    get_session
+    get_session,
+    get_last_downloaded_issue,
+    get_package_number
 )
 from tedawards.models import (
     Base, TEDDocument, ContractingBody, Contract, Award, Contractor
@@ -777,3 +777,248 @@ class TestGetSession:
             assert result is None
         finally:
             verify_session.close()
+
+
+class TestGetPackageNumber:
+    """Tests for get_package_number function."""
+
+    def test_first_issue_of_year(self):
+        """Test calculation for first issue of year."""
+        assert get_package_number(2024, 1) == 202400001
+
+    def test_last_issue_of_year(self):
+        """Test calculation for a high issue number."""
+        assert get_package_number(2024, 253) == 202400253
+
+    def test_different_years(self):
+        """Test that different years produce different package numbers."""
+        assert get_package_number(2023, 100) == 202300100
+        assert get_package_number(2024, 100) == 202400100
+        assert get_package_number(2023, 100) != get_package_number(2024, 100)
+
+
+class TestGetLastDownloadedIssue:
+    """Tests for get_last_downloaded_issue function."""
+
+    def test_no_existing_data(self, temp_data_dir):
+        """Test when no data exists for the year."""
+        result = get_last_downloaded_issue(2024, temp_data_dir)
+        assert result is None
+
+    def test_single_package_downloaded(self, temp_data_dir):
+        """Test with single package directory."""
+        # Create package directory for 2024, issue 1
+        package_dir = temp_data_dir / "202400001"
+        package_dir.mkdir()
+
+        result = get_last_downloaded_issue(2024, temp_data_dir)
+        assert result == 1
+
+    def test_multiple_packages_returns_highest(self, temp_data_dir):
+        """Test that highest issue number is returned."""
+        # Create multiple package directories
+        (temp_data_dir / "202400001").mkdir()
+        (temp_data_dir / "202400005").mkdir()
+        (temp_data_dir / "202400010").mkdir()
+        (temp_data_dir / "202400003").mkdir()
+
+        result = get_last_downloaded_issue(2024, temp_data_dir)
+        assert result == 10
+
+    def test_different_years_isolated(self, temp_data_dir):
+        """Test that different years are properly isolated."""
+        # Create packages for different years
+        (temp_data_dir / "202300050").mkdir()
+        (temp_data_dir / "202400010").mkdir()
+        (temp_data_dir / "202400020").mkdir()
+        (temp_data_dir / "202500005").mkdir()
+
+        assert get_last_downloaded_issue(2023, temp_data_dir) == 50
+        assert get_last_downloaded_issue(2024, temp_data_dir) == 20
+        assert get_last_downloaded_issue(2025, temp_data_dir) == 5
+
+    def test_ignores_non_directory_items(self, temp_data_dir):
+        """Test that files and invalid directories are ignored."""
+        # Create valid package directory
+        (temp_data_dir / "202400010").mkdir()
+
+        # Create files and invalid directories
+        (temp_data_dir / "202400015.txt").write_text("not a directory")
+        (temp_data_dir / "invalid").mkdir()
+        (temp_data_dir / "20240001").mkdir()  # Wrong length
+        (temp_data_dir / "202400abc").mkdir()  # Non-numeric
+
+        result = get_last_downloaded_issue(2024, temp_data_dir)
+        assert result == 10
+
+    def test_high_issue_numbers(self, temp_data_dir):
+        """Test with high issue numbers (close to year boundary)."""
+        (temp_data_dir / "202400253").mkdir()
+
+        result = get_last_downloaded_issue(2024, temp_data_dir)
+        assert result == 253
+
+
+class TestDownloadAndExtractResumeBehavior:
+    """Tests for download_and_extract resume behavior."""
+
+    def test_uses_existing_extracted_data(self, temp_data_dir):
+        """Test that existing extracted data is reused without re-download."""
+        package_number = 202400001
+        extract_dir = temp_data_dir / "202400001"
+        extract_dir.mkdir()
+
+        # Create existing XML files
+        xml_file = extract_dir / "test.xml"
+        xml_file.write_text("<test/>")
+
+        with patch('requests.get') as mock_get:
+            files = download_and_extract(package_number, temp_data_dir)
+
+            # Should NOT make HTTP request
+            mock_get.assert_not_called()
+            assert len(files) == 1
+            assert files[0] == xml_file
+
+    def test_downloads_if_directory_missing(self, temp_data_dir):
+        """Test that package is downloaded if directory doesn't exist."""
+        package_number = 202400001
+
+        # Create mock tar.gz archive
+        tar_path = temp_data_dir / "test.tar.gz"
+        with tarfile.open(tar_path, 'w:gz') as tar:
+            xml_file = temp_data_dir / "temp.xml"
+            xml_file.write_text("<test/>")
+            tar.add(xml_file, arcname="test.xml")
+            xml_file.unlink()
+
+        tar_data = tar_path.read_bytes()
+        tar_path.unlink()
+
+        mock_response = Mock()
+        mock_response.content = tar_data
+        mock_response.raise_for_status = Mock()
+
+        with patch('requests.get', return_value=mock_response):
+            files = download_and_extract(package_number, temp_data_dir)
+
+            assert len(files) == 1
+            assert files[0].name == "test.xml"
+
+    def test_downloads_if_directory_empty(self, temp_data_dir):
+        """Test that package is downloaded if directory exists but is empty."""
+        package_number = 202400001
+        extract_dir = temp_data_dir / "202400001"
+        extract_dir.mkdir()
+        # Directory exists but has no files
+
+        # Create mock tar.gz archive
+        tar_path = temp_data_dir / "test.tar.gz"
+        with tarfile.open(tar_path, 'w:gz') as tar:
+            xml_file = temp_data_dir / "temp.xml"
+            xml_file.write_text("<test/>")
+            tar.add(xml_file, arcname="test.xml")
+            xml_file.unlink()
+
+        tar_data = tar_path.read_bytes()
+        tar_path.unlink()
+
+        mock_response = Mock()
+        mock_response.content = tar_data
+        mock_response.raise_for_status = Mock()
+
+        with patch('requests.get', return_value=mock_response):
+            files = download_and_extract(package_number, temp_data_dir)
+
+            # Should download since directory was empty
+            assert len(files) == 1
+
+
+class TestScrapeYearResumeBehavior:
+    """Integration tests for scrape_year resume behavior."""
+
+    def test_auto_resume_from_last_issue(self, test_db, temp_data_dir):
+        """Test that scrape_year automatically resumes from last downloaded issue."""
+        from tedawards.scraper import scrape_year
+
+        # Create existing package directories
+        (temp_data_dir / "202400005").mkdir()
+        (temp_data_dir / "202400010").mkdir()
+
+        # Mock download_and_extract to track which issues are requested
+        requested_issues = []
+
+        def mock_download(package_num, data_dir):
+            year = package_num // 100000
+            issue = package_num % 100000
+            requested_issues.append(issue)
+            # Return None to simulate 404 and stop scraping
+            return None
+
+        with patch('tedawards.scraper.download_and_extract', side_effect=mock_download):
+            scrape_year(2024, max_issue=20, data_dir=temp_data_dir)
+
+        # Should start from issue 11 (last downloaded was 10)
+        assert requested_issues[0] == 11
+
+    def test_force_reimport_starts_from_issue_1(self, test_db, temp_data_dir):
+        """Test that force_reimport processes from issue 1."""
+        from tedawards.scraper import scrape_year
+
+        # Create existing package directories
+        (temp_data_dir / "202400005").mkdir()
+        (temp_data_dir / "202400010").mkdir()
+
+        requested_issues = []
+
+        def mock_download(package_num, data_dir):
+            year = package_num // 100000
+            issue = package_num % 100000
+            requested_issues.append(issue)
+            # Return None to simulate 404 and stop scraping
+            return None
+
+        with patch('tedawards.scraper.download_and_extract', side_effect=mock_download):
+            scrape_year(2024, max_issue=20, data_dir=temp_data_dir, force_reimport=True)
+
+        # Should start from issue 1 despite having issue 10 downloaded
+        assert requested_issues[0] == 1
+
+    def test_explicit_start_issue_overrides_resume(self, test_db, temp_data_dir):
+        """Test that explicit start_issue overrides auto-resume."""
+        from tedawards.scraper import scrape_year
+
+        # Create existing package directories
+        (temp_data_dir / "202400010").mkdir()
+
+        requested_issues = []
+
+        def mock_download(package_num, data_dir):
+            year = package_num // 100000
+            issue = package_num % 100000
+            requested_issues.append(issue)
+            return None
+
+        with patch('tedawards.scraper.download_and_extract', side_effect=mock_download):
+            scrape_year(2024, start_issue=5, max_issue=20, data_dir=temp_data_dir)
+
+        # Should start from explicit issue 5, not 11
+        assert requested_issues[0] == 5
+
+    def test_no_existing_data_starts_from_issue_1(self, test_db, temp_data_dir):
+        """Test that scraper starts from issue 1 when no data exists."""
+        from tedawards.scraper import scrape_year
+
+        requested_issues = []
+
+        def mock_download(package_num, data_dir):
+            year = package_num // 100000
+            issue = package_num % 100000
+            requested_issues.append(issue)
+            return None
+
+        with patch('tedawards.scraper.download_and_extract', side_effect=mock_download):
+            scrape_year(2024, max_issue=20, data_dir=temp_data_dir)
+
+        # Should start from issue 1 when no existing data
+        assert requested_issues[0] == 1

@@ -57,8 +57,47 @@ def get_package_number(year: int, issue: int) -> int:
     return year * 100000 + issue
 
 
+def get_last_downloaded_issue(year: int, data_dir: Path = DATA_DIR) -> Optional[int]:
+    """Get the last downloaded issue number for a given year by checking data directory.
+
+    Args:
+        year: Year to check
+        data_dir: Directory where packages are stored
+
+    Returns:
+        Last downloaded issue number for the year, or None if no data exists
+    """
+    # Find all package directories for this year (format: yyyynnnnn)
+    year_prefix = str(year)
+    matching_dirs = []
+
+    for item in data_dir.iterdir():
+        if item.is_dir() and item.name.startswith(year_prefix) and len(item.name) == 9:
+            try:
+                package_num = int(item.name)
+                pkg_year = package_num // 100000
+                pkg_issue = package_num % 100000
+                if pkg_year == year:
+                    matching_dirs.append(pkg_issue)
+            except ValueError:
+                continue
+
+    if not matching_dirs:
+        return None
+
+    return max(matching_dirs)
+
+
 def download_and_extract(package_number: int, data_dir: Path = DATA_DIR) -> Optional[List[Path]]:
-    """Download and extract daily package, return list of XML and ZIP files."""
+    """Download and extract daily package, return list of XML and ZIP files.
+
+    Args:
+        package_number: TED package number (yyyynnnnn format)
+        data_dir: Directory to store downloaded data
+
+    Returns:
+        List of file paths from the package, or None if package doesn't exist (404)
+    """
     package_url = f"https://ted.europa.eu/packages/daily/{package_number:09d}"
     package_str = f"{package_number:09d}"
     archive_path = data_dir / f"{package_str}.tar.gz"
@@ -228,7 +267,15 @@ def save_awards(session: Session, awards: List[TedAwardDataModel]) -> int:
 
 
 def scrape_package(package_number: int, data_dir: Path = DATA_DIR) -> int:
-    """Scrape TED awards for a specific package number. Returns number of awards processed."""
+    """Scrape TED awards for a specific package number. Returns number of awards processed.
+
+    Args:
+        package_number: TED package number to scrape
+        data_dir: Directory for storing downloaded packages
+
+    Returns:
+        Number of awards processed
+    """
     # Download and extract daily package
     files = download_and_extract(package_number, data_dir)
     if files is None:
@@ -267,18 +314,33 @@ def scrape_package(package_number: int, data_dir: Path = DATA_DIR) -> int:
         return 0
 
 
-def scrape_year(year: int, start_issue: int = 1, max_issue: int = 300, data_dir: Path = DATA_DIR):
+def scrape_year(year: int, start_issue: Optional[int] = None, max_issue: int = 300, data_dir: Path = DATA_DIR, force_reimport: bool = False):
     """Scrape TED awards for all available packages in a year.
 
     Args:
         year: The year to scrape
-        start_issue: Starting OJ issue number (default: 1)
+        start_issue: Starting OJ issue number (default: auto-resume from last downloaded issue + 1, or 1 if none)
         max_issue: Maximum issue number to try (default: 300, sufficient for most years)
         data_dir: Directory for storing downloaded packages
+        force_reimport: If True, reimport data from all already-downloaded archives (starting from issue 1)
     """
     Base.metadata.create_all(engine)
 
-    logger.info(f"Scraping TED awards for year {year} (issues {start_issue}-{max_issue})")
+    # Auto-resume from last downloaded issue if start_issue not specified (unless force_reimport)
+    if start_issue is None:
+        if force_reimport:
+            start_issue = 1
+            logger.info(f"Force reimport: processing all downloaded data from issue 1")
+        else:
+            last_issue = get_last_downloaded_issue(year, data_dir)
+            if last_issue is not None:
+                start_issue = last_issue + 1
+                logger.info(f"Resuming from issue {start_issue} (last downloaded: {last_issue})")
+            else:
+                start_issue = 1
+                logger.info(f"No existing data found for year {year}, starting from issue 1")
+
+    logger.info(f"Scraping TED awards for year {year} (starting from issue {start_issue}, stopping after 10 consecutive 404s)")
 
     total_processed = 0
     consecutive_404s = 0
@@ -332,13 +394,20 @@ def scrape_year(year: int, start_issue: int = 1, max_issue: int = 300, data_dir:
     logger.info(f"Year {year} completed: Processed {total_processed} total award notices")
 
 
-def scrape_year_range(start_year: int, end_year: int, data_dir: Path = DATA_DIR):
-    """Scrape TED awards for a range of years."""
+def scrape_year_range(start_year: int, end_year: int, data_dir: Path = DATA_DIR, force_reimport: bool = False):
+    """Scrape TED awards for a range of years.
+
+    Args:
+        start_year: First year to scrape
+        end_year: Last year to scrape (inclusive)
+        data_dir: Directory for storing downloaded packages
+        force_reimport: If True, reprocess already-downloaded archives
+    """
     Base.metadata.create_all(engine)
 
     logger.info(f"Scraping TED awards from {start_year} to {end_year}")
 
     for year in range(start_year, end_year + 1):
-        scrape_year(year, data_dir=data_dir)
+        scrape_year(year, data_dir=data_dir, force_reimport=force_reimport)
 
     logger.info("Scraping completed")
