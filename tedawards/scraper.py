@@ -133,7 +133,7 @@ def download_and_extract(package_number: int, data_dir: Path = DATA_DIR) -> Opti
     extract_dir.mkdir(exist_ok=True)
     try:
         with tarfile.open(archive_path, 'r:gz') as tar_file:
-            tar_file.extractall(extract_dir)
+            tar_file.extractall(extract_dir, filter='data')
     except tarfile.TarError as e:
         logger.error(f"Failed to extract package {package_str}: {e}")
         raise
