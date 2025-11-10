@@ -75,6 +75,7 @@ class ContractingBody(Base):
     __tablename__ = 'contracting_bodies'
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    entity_hash: Mapped[str] = mapped_column(String(16), unique=True, nullable=False, index=True)
     official_name: Mapped[str] = mapped_column(Text, nullable=False)
     address: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     town: Mapped[Optional[str]] = mapped_column(String, nullable=True)
@@ -102,7 +103,6 @@ class ContractingBody(Base):
     )
 
     __table_args__ = (
-        UniqueConstraint('official_name', 'country_code', 'town', name='uq_contracting_body_name_country_town'),
         Index('idx_contracting_body_country', 'country_code'),
     )
 
@@ -183,6 +183,7 @@ class Contractor(Base):
     __tablename__ = 'contractors'
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    entity_hash: Mapped[str] = mapped_column(String(16), unique=True, nullable=False, index=True)
     official_name: Mapped[str] = mapped_column(Text, nullable=False)
     address: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     town: Mapped[Optional[str]] = mapped_column(String, nullable=True)
@@ -204,7 +205,6 @@ class Contractor(Base):
     )
 
     __table_args__ = (
-        UniqueConstraint('official_name', 'country_code', name='uq_contractor_name_country'),
         Index('idx_contractors_country', 'country_code'),
         Index('idx_contractors_sme', 'is_sme'),
     )

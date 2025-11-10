@@ -4,8 +4,10 @@ Shared across all parsers to ensure consistent data format.
 """
 
 from datetime import date
-from typing import List, Optional
-from pydantic import BaseModel, Field, field_validator
+from typing import ClassVar, List, Optional
+from pydantic import BaseModel, Field, field_validator, computed_field
+
+from .hashing import HashableMixin
 
 
 class DocumentModel(BaseModel):
@@ -27,8 +29,13 @@ class DocumentModel(BaseModel):
         return v.upper() if v else v
 
 
-class ContractingBodyModel(BaseModel):
+class ContractingBodyModel(BaseModel, HashableMixin):
     """Contracting body model."""
+
+    # Key fields for entity hash: name + location
+    # Rationale: Same organization in same town/country = same entity
+    HASH_KEY_FIELDS: ClassVar[List[str]] = ['official_name', 'country_code', 'town']
+
     official_name: str = Field(..., description="Official name of contracting body")
     address: Optional[str] = Field(None, description="Address")
     town: Optional[str] = Field(None, description="Town/city")
@@ -50,6 +57,12 @@ class ContractingBodyModel(BaseModel):
         """Normalize country codes to uppercase for consistency (ISO standard)."""
         return v.upper() if v else v
 
+    @computed_field
+    @property
+    def entity_hash(self) -> str:
+        """Deterministic hash for deduplication."""
+        return self.compute_hash()
+
 
 class ContractModel(BaseModel):
     """Contract model."""
@@ -65,8 +78,14 @@ class ContractModel(BaseModel):
     performance_nuts_code: Optional[str] = Field(None, description="Performance NUTS code")
 
 
-class ContractorModel(BaseModel):
+class ContractorModel(BaseModel, HashableMixin):
     """Contractor model."""
+
+    # Key fields for entity hash: name + country
+    # Rationale: Company names are usually distinctive, country helps disambiguate
+    # Note: Town excluded as it's often missing for contractors
+    HASH_KEY_FIELDS: ClassVar[List[str]] = ['official_name', 'country_code']
+
     official_name: str = Field(..., description="Official name of contractor")
     address: Optional[str] = Field(None, description="Address")
     town: Optional[str] = Field(None, description="Town/city")
@@ -84,6 +103,12 @@ class ContractorModel(BaseModel):
     def normalize_country_code(cls, v):
         """Normalize country codes to uppercase for consistency (ISO standard)."""
         return v.upper() if v else v
+
+    @computed_field
+    @property
+    def entity_hash(self) -> str:
+        """Deterministic hash for deduplication."""
+        return self.compute_hash()
 
 
 class AwardModel(BaseModel):

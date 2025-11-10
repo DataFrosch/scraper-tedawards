@@ -157,20 +157,17 @@ def save_awards(session: Session, awards: List[TedAwardDataModel]) -> int:
 
             # Insert contracting body with INSERT OR IGNORE (shared entity)
             cb_data = award_data.contracting_body.model_dump()
+            cb_hash = award_data.contracting_body.entity_hash
+            cb_data['entity_hash'] = cb_hash
+
             stmt = insert_func(ContractingBody).values(**cb_data)
-            stmt = stmt.on_conflict_do_nothing(
-                index_elements=['official_name', 'country_code', 'town']
-            )
+            stmt = stmt.on_conflict_do_nothing(index_elements=['entity_hash'])
             session.execute(stmt)
             session.flush()
 
             # Get contracting body (either newly inserted or existing)
             cb = session.execute(
-                select(ContractingBody).where(
-                    ContractingBody.official_name == cb_data['official_name'],
-                    ContractingBody.country_code == cb_data.get('country_code'),
-                    ContractingBody.town == cb_data.get('town')
-                )
+                select(ContractingBody).where(ContractingBody.entity_hash == cb_hash)
             ).scalar_one()
 
             # Link document to contracting body (if not already linked)
@@ -223,20 +220,19 @@ def save_awards(session: Session, awards: List[TedAwardDataModel]) -> int:
                 ).scalar_one()
 
                 # Insert contractors with INSERT OR IGNORE
-                for contractor_data in contractors_data:
+                for contractor_item in award_item.contractors:
+                    contractor_data = contractor_item.model_dump()
+                    contractor_hash = contractor_item.entity_hash
+                    contractor_data['entity_hash'] = contractor_hash
+
                     stmt = insert_func(Contractor).values(**contractor_data)
-                    stmt = stmt.on_conflict_do_nothing(
-                        index_elements=['official_name', 'country_code']
-                    )
+                    stmt = stmt.on_conflict_do_nothing(index_elements=['entity_hash'])
                     session.execute(stmt)
                     session.flush()
 
                     # Get contractor (either newly inserted or existing)
                     contractor = session.execute(
-                        select(Contractor).where(
-                            Contractor.official_name == contractor_data['official_name'],
-                            Contractor.country_code == contractor_data.get('country_code')
-                        )
+                        select(Contractor).where(Contractor.entity_hash == contractor_hash)
                     ).scalar_one()
 
                     # Link award to contractor (if not already linked)
