@@ -21,7 +21,7 @@ load_dotenv()
 logger = logging.getLogger(__name__)
 
 # Database setup
-DB_PATH = Path(os.getenv('DB_PATH', './data/tedawards.db'))
+DB_PATH = Path(os.getenv('DB_PATH', './tedawards.db'))
 DB_PATH.parent.mkdir(parents=True, exist_ok=True)
 
 engine = create_engine(
@@ -37,9 +37,6 @@ DATA_DIR.mkdir(exist_ok=True)
 
 # Parser factory (module-level singleton)
 parser_factory = ParserFactory()
-
-# Initialize database schema
-Base.metadata.create_all(engine)
 
 
 @contextmanager
@@ -251,6 +248,8 @@ def save_awards(session: Session, awards: List[TedAwardDataModel]) -> int:
 
 def scrape_date(target_date: date, data_dir: Path = DATA_DIR):
     """Scrape TED awards for a specific date."""
+    Base.metadata.create_all(engine)
+
     day_number = get_day_number(target_date)
     package_url = f"https://ted.europa.eu/packages/daily/{day_number:09d}"
 
@@ -280,6 +279,8 @@ def scrape_date(target_date: date, data_dir: Path = DATA_DIR):
 
 def backfill_range(start_date: date, end_date: date, data_dir: Path = DATA_DIR):
     """Backfill TED awards for a date range."""
+    Base.metadata.create_all(engine)
+
     logger.info(f"Backfilling TED awards from {start_date} to {end_date}")
 
     current_date = start_date
