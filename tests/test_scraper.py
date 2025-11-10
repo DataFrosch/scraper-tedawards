@@ -92,48 +92,13 @@ def sample_award_data():
     )
 
 
-class TestGetDayNumber:
-    """Tests for get_day_number function."""
-
-    def test_first_day_of_year(self):
-        """Test calculation for first day of year."""
-        target = date(2024, 1, 1)
-        expected = 2024 * 100000 + 1  # 202400001
-        assert get_day_number(target) == expected
-
-    def test_last_day_of_leap_year(self):
-        """Test calculation for last day of leap year."""
-        target = date(2024, 12, 31)
-        expected = 2024 * 100000 + 366  # 202400366
-        assert get_day_number(target) == expected
-
-    def test_last_day_of_regular_year(self):
-        """Test calculation for last day of regular year."""
-        target = date(2023, 12, 31)
-        expected = 2023 * 100000 + 365  # 202300365
-        assert get_day_number(target) == expected
-
-    def test_mid_year_date(self):
-        """Test calculation for mid-year date."""
-        target = date(2024, 6, 15)
-        # Jan (31) + Feb (29 in leap year) + Mar (31) + Apr (30) + May (31) + 15 = 167
-        expected = 2024 * 100000 + 167
-        assert get_day_number(target) == expected
-
-    def test_different_years(self):
-        """Test that different years produce different day numbers."""
-        date_2023 = date(2023, 1, 1)
-        date_2024 = date(2024, 1, 1)
-        assert get_day_number(date_2023) != get_day_number(date_2024)
-
-
 class TestDownloadAndExtract:
     """Tests for download_and_extract function."""
 
     def test_existing_xml_files_reused(self, temp_data_dir):
         """Test that existing XML files are reused without download."""
-        target_date = date(2024, 1, 1)
-        extract_dir = temp_data_dir / "2024-01-01"
+        package_number = 202400001
+        extract_dir = temp_data_dir / "202400001"
         extract_dir.mkdir()
 
         # Create existing XML files
@@ -141,11 +106,7 @@ class TestDownloadAndExtract:
         xml_file.write_text("<test/>")
 
         with patch('requests.get') as mock_get:
-            files = download_and_extract(
-                "https://example.com/package",
-                target_date,
-                temp_data_dir
-            )
+            files = download_and_extract(package_number, temp_data_dir)
 
             # Should not make HTTP request
             mock_get.assert_not_called()
@@ -154,8 +115,8 @@ class TestDownloadAndExtract:
 
     def test_existing_zip_files_reused(self, temp_data_dir):
         """Test that existing ZIP files are reused without download."""
-        target_date = date(2024, 1, 1)
-        extract_dir = temp_data_dir / "2024-01-01"
+        package_number = 202400001
+        extract_dir = temp_data_dir / "202400001"
         extract_dir.mkdir()
 
         # Create existing ZIP file
@@ -163,11 +124,7 @@ class TestDownloadAndExtract:
         zip_file.write_bytes(b"PK")  # ZIP magic bytes
 
         with patch('requests.get') as mock_get:
-            files = download_and_extract(
-                "https://example.com/package",
-                target_date,
-                temp_data_dir
-            )
+            files = download_and_extract(package_number, temp_data_dir)
 
             mock_get.assert_not_called()
             assert len(files) == 1
@@ -175,8 +132,8 @@ class TestDownloadAndExtract:
 
     def test_case_insensitive_file_detection(self, temp_data_dir):
         """Test that uppercase extensions are also detected."""
-        target_date = date(2024, 1, 1)
-        extract_dir = temp_data_dir / "2024-01-01"
+        package_number = 202400001
+        extract_dir = temp_data_dir / "202400001"
         extract_dir.mkdir()
 
         # Create files with uppercase extensions
@@ -186,11 +143,7 @@ class TestDownloadAndExtract:
         zip_file.write_bytes(b"PK")
 
         with patch('requests.get') as mock_get:
-            files = download_and_extract(
-                "https://example.com/package",
-                target_date,
-                temp_data_dir
-            )
+            files = download_and_extract(package_number, temp_data_dir)
 
             mock_get.assert_not_called()
             assert len(files) == 2
@@ -199,7 +152,7 @@ class TestDownloadAndExtract:
 
     def test_download_and_extract_tar_gz(self, temp_data_dir):
         """Test downloading and extracting tar.gz archive."""
-        target_date = date(2024, 1, 1)
+        package_number = 202400001
 
         # Create a mock tar.gz archive with actual content
         tar_path = temp_data_dir / "test.tar.gz"
@@ -219,34 +172,26 @@ class TestDownloadAndExtract:
         mock_response.raise_for_status = Mock()
 
         with patch('requests.get', return_value=mock_response):
-            files = download_and_extract(
-                "https://example.com/package",
-                target_date,
-                temp_data_dir
-            )
+            files = download_and_extract(package_number, temp_data_dir)
 
             # Should extract XML file from archive
             assert len(files) == 1
             assert files[0].name == "test.xml"
 
             # Archive should be cleaned up
-            archive_path = temp_data_dir / "2024-01-01.tar.gz"
+            archive_path = temp_data_dir / "202400001.tar.gz"
             assert not archive_path.exists()
 
     def test_http_error_raises_exception(self, temp_data_dir):
         """Test that HTTP errors are properly raised."""
-        target_date = date(2024, 1, 1)
+        package_number = 202400001
 
         mock_response = Mock()
-        mock_response.raise_for_status.side_effect = Exception("404 Not Found")
+        mock_response.raise_for_status.side_effect = Exception("500 Server Error")
 
         with patch('requests.get', return_value=mock_response):
-            with pytest.raises(Exception, match="404 Not Found"):
-                download_and_extract(
-                    "https://example.com/package",
-                    target_date,
-                    temp_data_dir
-                )
+            with pytest.raises(Exception, match="500 Server Error"):
+                download_and_extract(package_number, temp_data_dir)
 
 
 class TestProcessFile:
@@ -665,66 +610,6 @@ class TestSaveAwards:
                     save_awards(session, [valid_data])
         finally:
             session.close()
-
-
-class TestScrapeDate:
-    """Integration tests for scrape_date function."""
-
-    def test_scrape_date_no_files(self, test_db, temp_data_dir):
-        """Test scraping when no files are found."""
-        target_date = date(2024, 1, 1)
-
-        with patch('tedawards.scraper.download_and_extract', return_value=[]):
-            scrape_date(target_date, temp_data_dir)
-            # Should complete without error
-
-    def test_scrape_date_no_awards_found(self, test_db, temp_data_dir):
-        """Test scraping when files exist but no awards found."""
-        target_date = date(2024, 1, 1)
-        xml_file = temp_data_dir / "test.xml"
-
-        with patch('tedawards.scraper.download_and_extract', return_value=[xml_file]), \
-             patch('tedawards.scraper.process_file', return_value=None):
-            scrape_date(target_date, temp_data_dir)
-            # Should complete without error
-
-    def test_scrape_date_with_awards(self, test_db, temp_data_dir, sample_award_data):
-        """Test successful scraping with awards."""
-        target_date = date(2024, 1, 1)
-        xml_file = temp_data_dir / "test.xml"
-
-        parser_result = TedParserResultModel(awards=[sample_award_data])
-
-        with patch('tedawards.scraper.download_and_extract', return_value=[xml_file]), \
-             patch('tedawards.scraper.process_file', return_value=parser_result):
-            scrape_date(target_date, temp_data_dir)
-
-            # Verify data was saved
-            from tedawards.scraper import SessionLocal
-            session = SessionLocal()
-            try:
-                doc = session.execute(
-                    select(TEDDocument).where(TEDDocument.doc_id == "12345-2024")
-                ).scalar_one_or_none()
-                assert doc is not None
-            finally:
-                session.close()
-
-    def test_scrape_date_calculates_correct_url(self, test_db, temp_data_dir):
-        """Test that scrape_date calculates correct package URL."""
-        target_date = date(2024, 1, 15)
-        expected_day_number = 202400015
-        expected_url = f"https://ted.europa.eu/packages/daily/{expected_day_number:09d}"
-
-        with patch('tedawards.scraper.download_and_extract', return_value=[]) as mock_download:
-            scrape_date(target_date, temp_data_dir)
-
-            # Verify correct URL was passed
-            mock_download.assert_called_once_with(
-                expected_url,
-                target_date,
-                temp_data_dir
-            )
 
 
 class TestGetSession:
