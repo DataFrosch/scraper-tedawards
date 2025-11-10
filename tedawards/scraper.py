@@ -138,13 +138,13 @@ def process_file(file_path: Path) -> TedParserResultModel:
 
 
 def save_awards(session: Session, awards: List[TedAwardDataModel]) -> int:
-    """Save award data to database."""
+    """Save award data to database with proper deduplication."""
     count = 0
+    insert_func = sqlite_insert if engine.dialect.name == 'sqlite' else pg_insert
 
     for award_data in awards:
         try:
             # Insert document with INSERT OR IGNORE
-            insert_func = sqlite_insert if engine.dialect.name == 'sqlite' else pg_insert
             stmt = insert_func(TEDDocument).values(**award_data.document.model_dump())
             stmt = stmt.on_conflict_do_nothing(index_elements=['doc_id'])
             session.execute(stmt)
@@ -155,21 +155,49 @@ def save_awards(session: Session, awards: List[TedAwardDataModel]) -> int:
                 select(TEDDocument).where(TEDDocument.doc_id == award_data.document.doc_id)
             ).scalar_one()
 
-            # Insert contracting body
+            # Insert contracting body with INSERT OR IGNORE (shared entity)
             cb_data = award_data.contracting_body.model_dump()
-            cb_data['ted_doc_id'] = doc.doc_id
-            cb = ContractingBody(**cb_data)
-            session.add(cb)
+            stmt = insert_func(ContractingBody).values(**cb_data)
+            stmt = stmt.on_conflict_do_nothing(
+                index_elements=['official_name', 'country_code', 'town']
+            )
+            session.execute(stmt)
             session.flush()
 
-            # Insert contract
+            # Get contracting body (either newly inserted or existing)
+            cb = session.execute(
+                select(ContractingBody).where(
+                    ContractingBody.official_name == cb_data['official_name'],
+                    ContractingBody.country_code == cb_data.get('country_code'),
+                    ContractingBody.town == cb_data.get('town')
+                )
+            ).scalar_one()
+
+            # Link document to contracting body (if not already linked)
+            if doc not in cb.documents:
+                cb.documents.append(doc)
+            session.flush()
+
+            # Insert contract with INSERT OR IGNORE
             contract_data = award_data.contract.model_dump()
             contract_data['ted_doc_id'] = doc.doc_id
             contract_data['contracting_body_id'] = cb.id
             contract_data.pop('performance_nuts_code', None)
-            contract = Contract(**contract_data)
-            session.add(contract)
+
+            stmt = insert_func(Contract).values(**contract_data)
+            stmt = stmt.on_conflict_do_nothing(
+                index_elements=['ted_doc_id', 'title']
+            )
+            session.execute(stmt)
             session.flush()
+
+            # Get contract (either newly inserted or existing)
+            contract = session.execute(
+                select(Contract).where(
+                    Contract.ted_doc_id == doc.doc_id,
+                    Contract.title == contract_data['title']
+                )
+            ).scalar_one()
 
             # Insert awards and contractors
             for award_item in award_data.awards:
@@ -177,9 +205,22 @@ def save_awards(session: Session, awards: List[TedAwardDataModel]) -> int:
                 contractors_data = award_dict.pop('contractors', [])
                 award_dict['contract_id'] = contract.id
 
-                award = Award(**award_dict)
-                session.add(award)
+                # Insert award with INSERT OR IGNORE
+                stmt = insert_func(Award).values(**award_dict)
+                stmt = stmt.on_conflict_do_nothing(
+                    index_elements=['contract_id', 'award_title', 'conclusion_date']
+                )
+                session.execute(stmt)
                 session.flush()
+
+                # Get award (either newly inserted or existing)
+                award = session.execute(
+                    select(Award).where(
+                        Award.contract_id == contract.id,
+                        Award.award_title == award_dict.get('award_title'),
+                        Award.conclusion_date == award_dict.get('conclusion_date')
+                    )
+                ).scalar_one()
 
                 # Insert contractors with INSERT OR IGNORE
                 for contractor_data in contractors_data:
@@ -190,19 +231,17 @@ def save_awards(session: Session, awards: List[TedAwardDataModel]) -> int:
                     session.execute(stmt)
                     session.flush()
 
-                    # Get contractor - use first() to handle duplicates
+                    # Get contractor (either newly inserted or existing)
                     contractor = session.execute(
                         select(Contractor).where(
                             Contractor.official_name == contractor_data['official_name'],
                             Contractor.country_code == contractor_data.get('country_code')
                         )
-                    ).first()
+                    ).scalar_one()
 
-                    if contractor:
-                        contractor = contractor[0]  # Extract from tuple
-                        # Link award to contractor
-                        if contractor not in award.contractors:
-                            award.contractors.append(contractor)
+                    # Link award to contractor (if not already linked)
+                    if contractor not in award.contractors:
+                        award.contractors.append(contractor)
 
             count += 1
 

@@ -328,11 +328,14 @@ class TestSaveAwards:
             ).scalar_one()
             assert doc.edition == "2024/S 001-000001"
 
-            # Verify contracting body was saved
+            # Verify contracting body was saved and linked to document
             cb = session.execute(
-                select(ContractingBody).where(ContractingBody.ted_doc_id == "12345-2024")
+                select(ContractingBody).where(
+                    ContractingBody.official_name == "Test Contracting Body"
+                )
             ).scalar_one()
             assert cb.official_name == "Test Contracting Body"
+            assert doc in cb.documents  # Verify many-to-many relationship
 
             # Verify contract was saved
             contract = session.execute(
@@ -517,6 +520,117 @@ class TestSaveAwards:
             # Verify different contractors
             contractors = session.execute(select(Contractor)).all()
             assert len(contractors) == 2
+
+        finally:
+            session.close()
+
+    def test_save_complete_reimport_is_idempotent(self, test_db, sample_award_data):
+        """Test that re-importing the same data is completely idempotent."""
+        from tedawards.scraper import SessionLocal
+
+        session = SessionLocal()
+        try:
+            # First import
+            count1 = save_awards(session, [sample_award_data])
+            session.commit()
+            assert count1 == 1
+
+            # Count records after first import
+            doc_count_1 = session.execute(select(TEDDocument)).all()
+            cb_count_1 = session.execute(select(ContractingBody)).all()
+            contract_count_1 = session.execute(select(Contract)).all()
+            award_count_1 = session.execute(select(Award)).all()
+            contractor_count_1 = session.execute(select(Contractor)).all()
+
+            assert len(doc_count_1) == 1
+            assert len(cb_count_1) == 1
+            assert len(contract_count_1) == 1
+            assert len(award_count_1) == 1
+            assert len(contractor_count_1) == 1
+
+            # Second import (re-import same data)
+            count2 = save_awards(session, [sample_award_data])
+            session.commit()
+            assert count2 == 1
+
+            # Count records after second import - should be identical
+            doc_count_2 = session.execute(select(TEDDocument)).all()
+            cb_count_2 = session.execute(select(ContractingBody)).all()
+            contract_count_2 = session.execute(select(Contract)).all()
+            award_count_2 = session.execute(select(Award)).all()
+            contractor_count_2 = session.execute(select(Contractor)).all()
+
+            assert len(doc_count_2) == 1, "Re-import created duplicate documents"
+            assert len(cb_count_2) == 1, "Re-import created duplicate contracting bodies"
+            assert len(contract_count_2) == 1, "Re-import created duplicate contracts"
+            assert len(award_count_2) == 1, "Re-import created duplicate awards"
+            assert len(contractor_count_2) == 1, "Re-import created duplicate contractors"
+
+        finally:
+            session.close()
+
+    def test_contracting_body_shared_across_documents(self, test_db):
+        """Test that same contracting body is shared across multiple documents."""
+        from tedawards.scraper import SessionLocal
+
+        # Create two documents with the same contracting body
+        award_data_1 = TedAwardDataModel(
+            document=DocumentModel(
+                doc_id="12345-2024",
+                publication_date=date(2024, 1, 1),
+                source_country="DE"
+            ),
+            contracting_body=ContractingBodyModel(
+                official_name="Ministry of Health",
+                country_code="DE",
+                town="Berlin"
+            ),
+            contract=ContractModel(
+                title="Medical Supplies Contract 2024",
+                main_cpv_code="33000000"
+            ),
+            awards=[AwardModel(contractors=[])]
+        )
+
+        award_data_2 = TedAwardDataModel(
+            document=DocumentModel(
+                doc_id="67890-2024",
+                publication_date=date(2024, 1, 15),
+                source_country="DE"
+            ),
+            contracting_body=ContractingBodyModel(
+                official_name="Ministry of Health",
+                country_code="DE",
+                town="Berlin"
+            ),
+            contract=ContractModel(
+                title="IT Services Contract 2024",
+                main_cpv_code="72000000"
+            ),
+            awards=[AwardModel(contractors=[])]
+        )
+
+        session = SessionLocal()
+        try:
+            # Save both awards
+            save_awards(session, [award_data_1, award_data_2])
+            session.commit()
+
+            # Verify two documents exist
+            docs = session.execute(select(TEDDocument)).all()
+            assert len(docs) == 2
+
+            # Verify only ONE contracting body exists
+            cbs = session.execute(select(ContractingBody)).all()
+            assert len(cbs) == 1, "Same contracting body should be shared, not duplicated"
+
+            # Verify the contracting body is linked to both documents
+            cb = cbs[0][0]
+            assert len(cb.documents) == 2, "Contracting body should be linked to both documents"
+
+            # Verify two contracts exist (contracts are document-specific)
+            contracts = session.execute(select(Contract)).all()
+            assert len(contracts) == 2
 
         finally:
             session.close()
