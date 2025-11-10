@@ -135,106 +135,96 @@ def process_file(file_path: Path) -> TedParserResultModel:
 
 
 def save_awards(session: Session, awards: List[TedAwardDataModel]) -> int:
-    """Save award data to database with proper deduplication."""
+    """Save award data to database with proper deduplication using RETURNING."""
     count = 0
     insert_func = sqlite_insert if engine.dialect.name == 'sqlite' else pg_insert
 
     for award_data in awards:
         try:
-            # Insert document with INSERT OR IGNORE
-            stmt = insert_func(TEDDocument).values(**award_data.document.model_dump())
-            stmt = stmt.on_conflict_do_nothing(index_elements=['doc_id'])
-            session.execute(stmt)
+            # Insert/update document with RETURNING to get doc_id
+            doc_values = award_data.document.model_dump()
+            stmt = insert_func(TEDDocument).values(**doc_values)
+            stmt = stmt.on_conflict_do_update(
+                index_elements=['doc_id'],
+                set_={'doc_id': stmt.excluded.doc_id}  # No-op update to trigger RETURNING
+            ).returning(TEDDocument.doc_id)
+            doc_id = session.execute(stmt).scalar_one()
             session.flush()
 
-            # Get document (either newly inserted or existing)
-            doc = session.execute(
-                select(TEDDocument).where(TEDDocument.doc_id == award_data.document.doc_id)
-            ).scalar_one()
-
-            # Insert contracting body with INSERT OR IGNORE (shared entity)
+            # Insert/update contracting body with RETURNING to get id
             cb_data = award_data.contracting_body.model_dump()
             cb_hash = award_data.contracting_body.entity_hash
             cb_data['entity_hash'] = cb_hash
 
             stmt = insert_func(ContractingBody).values(**cb_data)
-            stmt = stmt.on_conflict_do_nothing(index_elements=['entity_hash'])
+            stmt = stmt.on_conflict_do_update(
+                index_elements=['entity_hash'],
+                set_={'entity_hash': stmt.excluded.entity_hash}  # No-op update
+            ).returning(ContractingBody.id)
+            cb_id = session.execute(stmt).scalar_one()
+            session.flush()
+
+            # Insert document-contracting body relationship with INSERT OR IGNORE
+            from .models import document_contracting_bodies
+            stmt = insert_func(document_contracting_bodies).values(
+                ted_doc_id=doc_id,
+                contracting_body_id=cb_id
+            )
+            stmt = stmt.on_conflict_do_nothing()
             session.execute(stmt)
             session.flush()
 
-            # Get contracting body (either newly inserted or existing)
-            cb = session.execute(
-                select(ContractingBody).where(ContractingBody.entity_hash == cb_hash)
-            ).scalar_one()
-
-            # Link document to contracting body (if not already linked)
-            if doc not in cb.documents:
-                cb.documents.append(doc)
-            session.flush()
-
-            # Insert contract with INSERT OR IGNORE
+            # Insert/update contract with RETURNING to get id
             contract_data = award_data.contract.model_dump()
-            contract_data['ted_doc_id'] = doc.doc_id
-            contract_data['contracting_body_id'] = cb.id
+            contract_data['ted_doc_id'] = doc_id
+            contract_data['contracting_body_id'] = cb_id
             contract_data.pop('performance_nuts_code', None)
 
             stmt = insert_func(Contract).values(**contract_data)
-            stmt = stmt.on_conflict_do_nothing(
-                index_elements=['ted_doc_id', 'title']
-            )
-            session.execute(stmt)
+            stmt = stmt.on_conflict_do_update(
+                index_elements=['ted_doc_id', 'title'],
+                set_={'ted_doc_id': stmt.excluded.ted_doc_id}  # No-op update
+            ).returning(Contract.id)
+            contract_id = session.execute(stmt).scalar_one()
             session.flush()
-
-            # Get contract (either newly inserted or existing)
-            contract = session.execute(
-                select(Contract).where(
-                    Contract.ted_doc_id == doc.doc_id,
-                    Contract.title == contract_data['title']
-                )
-            ).scalar_one()
 
             # Insert awards and contractors
             for award_item in award_data.awards:
                 award_dict = award_item.model_dump()
                 contractors_data = award_dict.pop('contractors', [])
-                award_dict['contract_id'] = contract.id
+                award_dict['contract_id'] = contract_id
 
-                # Insert award with INSERT OR IGNORE
+                # Insert/update award with RETURNING to get id
                 stmt = insert_func(Award).values(**award_dict)
-                stmt = stmt.on_conflict_do_nothing(
-                    index_elements=['contract_id', 'award_title', 'conclusion_date']
-                )
-                session.execute(stmt)
+                stmt = stmt.on_conflict_do_update(
+                    index_elements=['contract_id', 'award_title', 'conclusion_date'],
+                    set_={'contract_id': stmt.excluded.contract_id}  # No-op update
+                ).returning(Award.id)
+                award_id = session.execute(stmt).scalar_one()
                 session.flush()
 
-                # Get award (either newly inserted or existing)
-                award = session.execute(
-                    select(Award).where(
-                        Award.contract_id == contract.id,
-                        Award.award_title == award_dict.get('award_title'),
-                        Award.conclusion_date == award_dict.get('conclusion_date')
-                    )
-                ).scalar_one()
-
-                # Insert contractors with INSERT OR IGNORE
+                # Insert contractors and link to awards
                 for contractor_item in award_item.contractors:
                     contractor_data = contractor_item.model_dump()
                     contractor_hash = contractor_item.entity_hash
                     contractor_data['entity_hash'] = contractor_hash
 
                     stmt = insert_func(Contractor).values(**contractor_data)
-                    stmt = stmt.on_conflict_do_nothing(index_elements=['entity_hash'])
-                    session.execute(stmt)
+                    stmt = stmt.on_conflict_do_update(
+                        index_elements=['entity_hash'],
+                        set_={'entity_hash': stmt.excluded.entity_hash}  # No-op update
+                    ).returning(Contractor.id)
+                    contractor_id = session.execute(stmt).scalar_one()
                     session.flush()
 
-                    # Get contractor (either newly inserted or existing)
-                    contractor = session.execute(
-                        select(Contractor).where(Contractor.entity_hash == contractor_hash)
-                    ).scalar_one()
-
-                    # Link award to contractor (if not already linked)
-                    if contractor not in award.contractors:
-                        award.contractors.append(contractor)
+                    # Insert award-contractor relationship with INSERT OR IGNORE
+                    from .models import award_contractors
+                    stmt = insert_func(award_contractors).values(
+                        award_id=award_id,
+                        contractor_id=contractor_id
+                    )
+                    stmt = stmt.on_conflict_do_nothing()
+                    session.execute(stmt)
 
             count += 1
 
@@ -262,8 +252,23 @@ def scrape_date(target_date: date, data_dir: Path = DATA_DIR):
         return
 
     # Process all files and collect awards
+    # Filter for English-only files to avoid processing all language variants
+    english_files = [
+        f for f in files
+        if (
+            # TED META XML: en_*_meta_org.zip or EN_*_META_ORG.ZIP
+            f.name.lower().startswith('en_') and '_meta_org.' in f.name.lower()
+        ) or (
+            # TED INTERNAL_OJS: *.en files
+            f.suffix.lower() == '.en'
+        ) or (
+            # TED 2.0 and eForms: all languages in one file (*.xml)
+            f.suffix.lower() == '.xml'
+        )
+    ]
+
     all_awards = []
-    for file_path in files:
+    for file_path in english_files:
         parser_result = process_file(file_path)
         if parser_result:
             all_awards.extend(parser_result.awards)
