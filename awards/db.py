@@ -11,6 +11,7 @@ from sqlalchemy import text as sa_text
 
 from .countries import get_country_name
 from .models import (
+    Base,
     Document,
     Organization,
     Contract,
@@ -113,6 +114,11 @@ _upsert_processed_package = _pp_ins.on_conflict_do_update(
         "processed_at": func.now(),
     },
 )
+
+
+def init_db(eng=None) -> None:
+    """Create all tables if they don't exist. Idempotent."""
+    Base.metadata.create_all(eng or engine)
 
 
 @contextmanager

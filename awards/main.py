@@ -2,7 +2,7 @@ import click
 import logging
 import os
 from datetime import datetime
-from .db import refresh_materialized_view
+from .db import init_db, refresh_materialized_view
 from .rates import update_rates
 
 from .portals import PORTALS
@@ -31,7 +31,7 @@ def _resolve_portals(portal_arg: str | None) -> list:
 @click.group()
 def cli():
     """Procurement awards scraper."""
-    pass
+    init_db()
 
 
 @cli.command()

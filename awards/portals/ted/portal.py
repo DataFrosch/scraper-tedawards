@@ -9,13 +9,12 @@ from pathlib import Path
 from typing import List, Optional
 
 from ...db import (
-    engine,
     get_session,
     get_imported_package_numbers,
+    init_db,
     record_package,
     save_document_core,
 )
-from ...models import Base
 from ...schema import AwardDataModel
 from ...parsers import ted_v2, eforms_ubl
 
@@ -139,6 +138,10 @@ def download_year(year: int, max_issue: int = 300, data_dir: Path = DATA_DIR):
         f"Downloading TED packages for year {year} (issues 1-{max_issue}, stopping after 10 consecutive 404s)"
     )
 
+    # Ensure tables exist — download may run before any import on a fresh DB,
+    # and get_imported_package_numbers reads processed_packages.
+    init_db()
+
     total_downloaded = 0
     consecutive_404s = 0
     max_consecutive_404s = 10
@@ -255,7 +258,7 @@ def import_year(year: int, data_dir: Path = DATA_DIR):
         year: The year to import
         data_dir: Directory where packages are stored
     """
-    Base.metadata.create_all(engine)
+    init_db()
 
     packages = get_downloaded_packages(year, data_dir)
     if not packages:

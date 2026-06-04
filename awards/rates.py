@@ -10,7 +10,7 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.orm import Session
 
 from .models import ExchangeRate, PriceIndex
-from .db import engine, get_session
+from .db import get_session, init_db
 
 logger = logging.getLogger(__name__)
 
@@ -131,9 +131,7 @@ def save_price_indices(session: Session, rows: list[dict]) -> int:
 
 def update_rates(start_year: int, end_year: int):
     """Fetch ECB exchange rates and Eurostat HICP, upsert into database."""
-    from .models import Base
-
-    Base.metadata.create_all(engine)
+    init_db()
 
     with get_session() as session:
         currencies = _get_award_currencies(session)
