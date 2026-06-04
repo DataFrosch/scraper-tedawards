@@ -14,6 +14,8 @@ from awards.countries import get_country_name
 from awards.db import (
     save_document,
     get_session,
+    get_imported_package_numbers,
+    record_package,
     _normalize_country_code,
 )
 from awards.models import (
@@ -26,6 +28,7 @@ from awards.models import (
     Country,
     OrganizationIdentifier,
     ProcedureType,
+    ProcessedPackage,
     award_contractors,
     contract_cpv_codes,
 )
@@ -1178,3 +1181,58 @@ class TestOrganizationIdentifiers:
             assert len(org_ids) == 1
         finally:
             session.close()
+
+
+class TestProcessedPackages:
+    """Tests for processed-package tracking (resumable download/import)."""
+
+    def test_record_and_get(self, test_db):
+        """record_package inserts a row that get_imported_package_numbers returns."""
+        with get_session() as session:
+            record_package(session, 202400001, 42)
+
+        assert get_imported_package_numbers(2024) == {202400001}
+
+    def test_record_is_upsert(self, test_db):
+        """Re-recording the same package updates count/timestamp without duplicating."""
+        from awards.db import SessionLocal
+
+        with get_session() as session:
+            record_package(session, 202400001, 10)
+
+        session = SessionLocal()
+        try:
+            first = session.execute(
+                select(ProcessedPackage).where(
+                    ProcessedPackage.package_number == 202400001
+                )
+            ).scalar_one()
+            first_processed_at = first.processed_at
+            assert first.document_count == 10
+        finally:
+            session.close()
+
+        with get_session() as session:
+            record_package(session, 202400001, 25)
+
+        session = SessionLocal()
+        try:
+            rows = session.execute(
+                select(ProcessedPackage).where(
+                    ProcessedPackage.package_number == 202400001
+                )
+            ).scalars().all()
+            assert len(rows) == 1
+            assert rows[0].document_count == 25
+            assert rows[0].processed_at >= first_processed_at
+        finally:
+            session.close()
+
+    def test_get_filters_by_year(self, test_db):
+        """get_imported_package_numbers only returns packages for the given year."""
+        with get_session() as session:
+            record_package(session, 202400123, 5)
+            record_package(session, 202500001, 7)
+
+        assert get_imported_package_numbers(2024) == {202400123}
+        assert get_imported_package_numbers(2025) == {202500001}

@@ -4,15 +4,17 @@ Organizations (buyers and contractors) are normalized into a shared lookup table
 with exact-match deduplication via a composite unique constraint.
 """
 
-from datetime import date
+from datetime import date, datetime
 from decimal import Decimal
 from typing import List, Optional
 
 from sqlalchemy import (
+    BigInteger,
     Boolean,
     Column,
     DDL,
     Date,
+    DateTime,
     ForeignKey,
     Integer,
     Numeric,
@@ -22,6 +24,7 @@ from sqlalchemy import (
     Index,
     UniqueConstraint,
     event,
+    func,
     text,
 )
 from sqlalchemy.orm import (
@@ -329,6 +332,27 @@ class PriceIndex(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     year: Mapped[int] = mapped_column(Integer, nullable=False, unique=True)
     index_value: Mapped[Decimal] = mapped_column(Numeric(12, 4), nullable=False)
+
+
+class ProcessedPackage(Base):
+    """Record of TED daily packages that have been imported.
+
+    Persists which OJ issues were processed so download/import stay resumable
+    after the extracted XML is deleted from disk.
+    """
+
+    __tablename__ = "processed_packages"
+
+    package_number: Mapped[int] = mapped_column(
+        BigInteger, primary_key=True, autoincrement=False
+    )
+    year: Mapped[int] = mapped_column(Integer, nullable=False)
+    document_count: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    processed_at: Mapped[datetime] = mapped_column(
+        DateTime, server_default=func.now(), nullable=False
+    )
+
+    __table_args__ = (Index("idx_processed_packages_year", "year"),)
 
 
 class OrganizationIdentifier(Base):

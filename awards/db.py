@@ -20,6 +20,7 @@ from .models import (
     AuthorityType,
     Country,
     OrganizationIdentifier,
+    ProcessedPackage,
     award_contractors,
     contract_cpv_codes,
 )
@@ -101,6 +102,16 @@ _upsert_org_id = _org_id_ins.on_conflict_do_nothing(
 # Doc existence check
 _check_doc = select(Document.__table__.c.doc_id).where(
     Document.__table__.c.doc_id == bindparam("doc_id")
+)
+
+# Processed package upsert — refresh count/timestamp on re-import
+_pp_ins = pg_insert(ProcessedPackage.__table__)
+_upsert_processed_package = _pp_ins.on_conflict_do_update(
+    index_elements=["package_number"],
+    set_={
+        "document_count": _pp_ins.excluded.document_count,
+        "processed_at": func.now(),
+    },
 )
 
 
@@ -312,6 +323,33 @@ def save_document(award_data: AwardDataModel) -> bool:
     """
     with get_session() as session:
         return save_document_core(session, award_data)
+
+
+def record_package(
+    session: Session, package_number: int, document_count: int
+) -> None:
+    """Record that a TED package has been imported.
+
+    Operates within the caller's session/transaction — does not commit. Upserts
+    so re-importing a package refreshes its document count and timestamp.
+    """
+    session.execute(
+        _upsert_processed_package,
+        {
+            "package_number": package_number,
+            "year": package_number // 100000,
+            "document_count": document_count,
+        },
+    )
+
+
+def get_imported_package_numbers(year: int) -> set[int]:
+    """Return the set of package numbers already imported for a year."""
+    stmt = select(ProcessedPackage.__table__.c.package_number).where(
+        ProcessedPackage.__table__.c.year == year
+    )
+    with get_session() as session:
+        return set(session.execute(stmt).scalars().all())
 
 
 _MATERIALIZED_VIEW_SQL = """\

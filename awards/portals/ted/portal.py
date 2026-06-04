@@ -8,7 +8,13 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import List, Optional
 
-from ...db import engine, get_session, save_document_core
+from ...db import (
+    engine,
+    get_session,
+    get_imported_package_numbers,
+    record_package,
+    save_document_core,
+)
 from ...models import Base
 from ...schema import AwardDataModel
 from ...parsers import ted_v2, eforms_ubl
@@ -137,8 +143,17 @@ def download_year(year: int, max_issue: int = 300, data_dir: Path = DATA_DIR):
     consecutive_404s = 0
     max_consecutive_404s = 10
 
+    imported = get_imported_package_numbers(year)
+
     for issue in range(1, max_issue + 1):
         package_number = get_package_number(year, issue)
+
+        # Already imported (per the DB) — skip the HTTP fetch; it's known-good.
+        # This keeps download resumable even after ./data was deleted.
+        if package_number in imported:
+            consecutive_404s = 0
+            continue
+
         success = download_package(package_number, data_dir)
 
         if not success:
@@ -223,6 +238,7 @@ def import_package(
                 for award_data in awards:
                     if save_document_core(session, award_data):
                         count += 1
+            record_package(session, package_number, count)
     finally:
         if own_executor:
             executor.shutdown(wait=False)
