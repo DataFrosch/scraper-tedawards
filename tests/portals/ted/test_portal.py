@@ -280,8 +280,10 @@ class TestDownloadPackageResumeBehavior:
 class TestDownloadYear:
     """Tests for download_year function."""
 
-    def test_starts_from_issue_1(self, temp_data_dir):
+    def test_starts_from_issue_1(self, test_db, temp_data_dir):
         """Test that download always starts from issue 1."""
+        # test_db is required: download_year calls init_db() and reads
+        # processed_packages (get_imported_package_numbers) before fetching.
         requested_issues = []
 
         def mock_download(package_num, data_dir):

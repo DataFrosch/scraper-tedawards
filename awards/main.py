@@ -2,7 +2,7 @@ import click
 import logging
 import os
 from datetime import datetime
-from .db import init_db, refresh_materialized_view
+from .db import refresh_materialized_view
 from .rates import update_rates
 
 from .portals import PORTALS
@@ -31,7 +31,10 @@ def _resolve_portals(portal_arg: str | None) -> list:
 @click.group()
 def cli():
     """Procurement awards scraper."""
-    init_db()
+    # Table creation happens in each command's entry point (download_year,
+    # import_year, update_rates) so the group callback — and plain CLI usage
+    # like --help — does not require a live database.
+    pass
 
 
 @cli.command()

@@ -1,12 +1,12 @@
 import logging
 import os
 from contextlib import contextmanager
+
 import pycountry
 from dotenv import load_dotenv
 from sqlalchemy import bindparam, create_engine, func, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.orm import sessionmaker, Session
-
 from sqlalchemy import text as sa_text
 
 from .countries import get_country_name
@@ -105,14 +105,11 @@ _check_doc = select(Document.__table__.c.doc_id).where(
     Document.__table__.c.doc_id == bindparam("doc_id")
 )
 
-# Processed package upsert — refresh count/timestamp on re-import
+# Processed package upsert — refresh the processed_at timestamp on re-import.
 _pp_ins = pg_insert(ProcessedPackage.__table__)
 _upsert_processed_package = _pp_ins.on_conflict_do_update(
     index_elements=["package_number"],
-    set_={
-        "document_count": _pp_ins.excluded.document_count,
-        "processed_at": func.now(),
-    },
+    set_={"processed_at": func.now()},
 )
 
 
@@ -331,20 +328,17 @@ def save_document(award_data: AwardDataModel) -> bool:
         return save_document_core(session, award_data)
 
 
-def record_package(
-    session: Session, package_number: int, document_count: int
-) -> None:
+def record_package(session: Session, package_number: int) -> None:
     """Record that a TED package has been imported.
 
     Operates within the caller's session/transaction — does not commit. Upserts
-    so re-importing a package refreshes its document count and timestamp.
+    so re-importing a package refreshes its processed_at timestamp.
     """
     session.execute(
         _upsert_processed_package,
         {
             "package_number": package_number,
             "year": package_number // 100000,
-            "document_count": document_count,
         },
     )
 

@@ -347,9 +347,8 @@ class ProcessedPackage(Base):
         BigInteger, primary_key=True, autoincrement=False
     )
     year: Mapped[int] = mapped_column(Integer, nullable=False)
-    document_count: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     processed_at: Mapped[datetime] = mapped_column(
-        DateTime, server_default=func.now(), nullable=False
+        DateTime(timezone=True), server_default=func.now(), nullable=False
     )
 
     __table_args__ = (Index("idx_processed_packages_year", "year"),)

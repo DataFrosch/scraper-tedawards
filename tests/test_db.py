@@ -1189,50 +1189,45 @@ class TestProcessedPackages:
     def test_record_and_get(self, test_db):
         """record_package inserts a row that get_imported_package_numbers returns."""
         with get_session() as session:
-            record_package(session, 202400001, 42)
+            record_package(session, 202400001)
 
         assert get_imported_package_numbers(2024) == {202400001}
 
     def test_record_is_upsert(self, test_db):
-        """Re-recording the same package updates count/timestamp without duplicating."""
-        from awards.db import SessionLocal
+        """Re-recording the same package refreshes processed_at without duplicating."""
+        with get_session() as session:
+            record_package(session, 202400001)
 
         with get_session() as session:
-            record_package(session, 202400001, 10)
-
-        session = SessionLocal()
-        try:
             first = session.execute(
                 select(ProcessedPackage).where(
                     ProcessedPackage.package_number == 202400001
                 )
             ).scalar_one()
             first_processed_at = first.processed_at
-            assert first.document_count == 10
-        finally:
-            session.close()
 
         with get_session() as session:
-            record_package(session, 202400001, 25)
+            record_package(session, 202400001)
 
-        session = SessionLocal()
-        try:
-            rows = session.execute(
-                select(ProcessedPackage).where(
-                    ProcessedPackage.package_number == 202400001
+        with get_session() as session:
+            rows = (
+                session.execute(
+                    select(ProcessedPackage).where(
+                        ProcessedPackage.package_number == 202400001
+                    )
                 )
-            ).scalars().all()
+                .scalars()
+                .all()
+            )
             assert len(rows) == 1
-            assert rows[0].document_count == 25
-            assert rows[0].processed_at >= first_processed_at
-        finally:
-            session.close()
+            # Separate transactions, so the timestamp must be strictly newer.
+            assert rows[0].processed_at > first_processed_at
 
     def test_get_filters_by_year(self, test_db):
         """get_imported_package_numbers only returns packages for the given year."""
         with get_session() as session:
-            record_package(session, 202400123, 5)
-            record_package(session, 202500001, 7)
+            record_package(session, 202400123)
+            record_package(session, 202500001)
 
         assert get_imported_package_numbers(2024) == {202400123}
         assert get_imported_package_numbers(2025) == {202500001}

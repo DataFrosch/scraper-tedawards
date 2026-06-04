@@ -73,7 +73,6 @@ def test_db():
     with (
         patch("awards.db.engine", engine),
         patch("awards.db.SessionLocal", SessionLocal),
-        patch("awards.rates.engine", engine),
     ):
         yield engine
 

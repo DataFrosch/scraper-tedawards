@@ -151,8 +151,11 @@ def download_year(year: int, max_issue: int = 300, data_dir: Path = DATA_DIR):
     for issue in range(1, max_issue + 1):
         package_number = get_package_number(year, issue)
 
-        # Already imported (per the DB) — skip the HTTP fetch; it's known-good.
-        # This keeps download resumable even after ./data was deleted.
+        # Skip the HTTP fetch for packages already recorded in processed_packages
+        # — that table is populated by *import*, so this only skips packages that
+        # were both downloaded and imported on a prior run (resumable even after
+        # ./data was deleted). A downloaded-but-not-yet-imported package is not
+        # recorded and will be re-downloaded.
         if package_number in imported:
             consecutive_404s = 0
             continue
@@ -241,7 +244,7 @@ def import_package(
                 for award_data in awards:
                     if save_document_core(session, award_data):
                         count += 1
-            record_package(session, package_number, count)
+            record_package(session, package_number)
     finally:
         if own_executor:
             executor.shutdown(wait=False)
