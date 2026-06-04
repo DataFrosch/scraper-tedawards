@@ -10,6 +10,7 @@ from decimal import Decimal
 from sqlalchemy import create_engine, select, text
 from sqlalchemy.orm import sessionmaker
 
+from awards.countries import get_country_name
 from awards.db import (
     save_document,
     get_session,
@@ -752,6 +753,41 @@ class TestNormalizeCountryCode:
 
     def test_normal_code_preserved(self):
         assert _normalize_country_code("FR") == "FR"
+
+    def test_alpha3_maps_to_alpha2(self):
+        assert _normalize_country_code("FRA") == "FR"
+        assert _normalize_country_code("DEU") == "DE"
+        assert _normalize_country_code("GRC") == "GR"
+
+    def test_alpha3_lowercase_maps_to_alpha2(self):
+        assert _normalize_country_code("fra") == "FR"
+
+    def test_1a0_maps_to_none(self):
+        assert _normalize_country_code("1A0") is None
+
+    def test_kosovo_alpha3_maps_to_xk(self):
+        assert _normalize_country_code("XKX") == "XK"
+
+    def test_unresolvable_alpha3_kept_raw(self):
+        # Fail-loud: unknown alpha-3 is preserved, not silently dropped.
+        assert _normalize_country_code("ZZZ") == "ZZZ"
+
+
+class TestGetCountryName:
+    """Tests for get_country_name lookup."""
+
+    def test_iso_alpha2_resolves(self):
+        assert get_country_name("FR") == "France"
+
+    def test_historical_code_resolves(self):
+        assert get_country_name("AN") == "Netherlands Antilles"
+
+    def test_kosovo_resolves(self):
+        # XK has no ISO entry; covered by the manual override.
+        assert get_country_name("XK") == "Kosovo"
+
+    def test_unknown_code_returns_none(self):
+        assert get_country_name("ZZ") is None
 
 
 class TestCountryLookupTable:

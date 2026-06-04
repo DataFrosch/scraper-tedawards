@@ -1,6 +1,7 @@
 import logging
 import os
 from contextlib import contextmanager
+import pycountry
 from dotenv import load_dotenv
 from sqlalchemy import bindparam, create_engine, func, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
@@ -117,15 +118,33 @@ def get_session() -> Session:
         session.close()
 
 
+# Country codes pycountry can't map: EU/junk codes plus retired/user-assigned.
+_COUNTRY_OVERRIDES = {
+    "UK": "GB",  # EU/Eurostat alpha-2 -> ISO alpha-2
+    "1A": None,  # junk
+    "1A0": None,  # junk variant found in TED data
+    "XKX": "XK",  # eForms Kosovo (no ISO code) -> user-assigned alpha-2
+}
+
+
 def _normalize_country_code(value: str | None) -> str | None:
+    """Canonicalize a country code to ISO 3166-1 alpha-2.
+
+    TED v2 emits alpha-2, eForms UBL emits alpha-3; reconcile both to alpha-2.
+    Unresolvable codes are kept raw and logged (fail-loud), never silently dropped.
+    """
     if not value:
         return None
-    code = value.upper()
-    if code == "UK":
-        return "GB"
-    if code == "1A":
-        return None
-    return code
+    code = value.strip().upper()
+    if code in _COUNTRY_OVERRIDES:
+        return _COUNTRY_OVERRIDES[code]
+    if len(code) == 3:  # eForms alpha-3
+        country = pycountry.countries.get(alpha_3=code)
+        if country:
+            return country.alpha_2
+        logger.warning(f"Unresolvable alpha-3 country code: {code!r}")
+        return code
+    return code  # assume alpha-2
 
 
 def save_document_core(session: Session, award_data: AwardDataModel) -> bool:

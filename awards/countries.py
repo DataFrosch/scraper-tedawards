@@ -2,9 +2,11 @@
 
 import pycountry
 
-# Historical codes present in TED data but removed from ISO 3166
+# Codes present in TED data but absent from pycountry's ISO 3166 alpha-2 set:
+# historical (removed) and user-assigned codes.
 _HISTORICAL = {
     "AN": "Netherlands Antilles",
+    "XK": "Kosovo",
 }
 
 
